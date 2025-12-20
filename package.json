@@ -1,0 +1,15 @@
+{
+  "name": "browser-to-comfyui-extension",
+  "version": "1.0.0",
+  "description": "Chrome extension to save prompts from web pages and send to ComfyUI",
+  "scripts": {
+    "build": "vite build",
+    "dev": "vite build --watch",
+    "clean": "rm -rf dist"
+  },
+  "devDependencies": {
+    "typescript": "^5.0.0",
+    "vite": "^4.0.0",
+    "@types/chrome": "^0.0.246"
+  }
+}

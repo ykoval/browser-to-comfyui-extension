@@ -1,0 +1,92 @@
+/// <reference types="chrome" />
+
+import { getSettings, addPromptEntry, sendToComfyUI, pollForImage, updatePromptEntry } from './utils';
+
+chrome.runtime.onInstalled.addListener(() => {
+  chrome.contextMenus.removeAll(() => {
+    chrome.contextMenus.create({
+      id: 'saveAsPrompt',
+      title: 'Save as Prompt',
+      contexts: ['selection'],
+    });
+  });
+});
+
+function buildPayload(text: string, settings: {
+  negativePrompt: string;
+  seed: number;
+  steps: number;
+  cfg: number;
+  aspectRatio: string;
+  megapixel: number;
+  enableUpscale: boolean;
+}) {
+  return {
+    prompt: text,
+    negativePrompt: settings.negativePrompt,
+    seed: settings.seed,
+    steps: settings.steps,
+    cfg: settings.cfg,
+    aspectRatio: settings.aspectRatio,
+    megapixel: settings.megapixel,
+    enableUpscale: settings.enableUpscale,
+  };
+}
+
+chrome.contextMenus.onClicked.addListener(async (info: chrome.contextMenus.OnClickData, tab?: chrome.tabs.Tab) => {
+  if (info.menuItemId === 'saveAsPrompt' && info.selectionText) {
+    const settings = await getSettings();
+    const entry = await addPromptEntry(info.selectionText);
+
+    if (settings.autoSend) {
+      try {
+        const promptId = await sendToComfyUI(buildPayload(entry.text, settings), settings);
+        await updatePromptEntry(entry.id, { imageStatus: 'generating', promptId });
+        
+        const imageUrl = await pollForImage(promptId, settings);
+        if (imageUrl) {
+          await updatePromptEntry(entry.id, { imageStatus: 'done', imageUrl });
+        } else {
+          await updatePromptEntry(entry.id, { imageStatus: 'error' });
+        }
+      } catch (error) {
+        console.error('Auto-send failed:', error);
+        await updatePromptEntry(entry.id, { imageStatus: 'error' });
+      }
+    }
+  }
+});
+
+chrome.commands.onCommand.addListener(async (command: string) => {
+  if (command === 'save_prompt_shortcut') {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (tab?.id) {
+      const result = await chrome.scripting.executeScript({
+        target: { tabId: tab.id },
+        func: () => window.getSelection()?.toString(),
+      });
+      const selectedText = result[0]?.result;
+      if (selectedText) {
+        const settings = await getSettings();
+        const entry = await addPromptEntry(selectedText);
+
+        if (settings.autoSend) {
+          try {
+            const promptId = await sendToComfyUI(buildPayload(entry.text, settings), settings);
+            await updatePromptEntry(entry.id, { imageStatus: 'generating', promptId });
+            
+            const imageUrl = await pollForImage(promptId, settings);
+            if (imageUrl) {
+              await updatePromptEntry(entry.id, { imageStatus: 'done', imageUrl });
+            } else {
+              await updatePromptEntry(entry.id, { imageStatus: 'error' });
+            }
+          } catch (error) {
+            console.error('Shortcut auto-send failed:', error);
+            await updatePromptEntry(entry.id, { imageStatus: 'error' });
+          }
+        }
+      }
+    }
+  }
+});

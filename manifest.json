@@ -1,0 +1,44 @@
+{
+  "manifest_version": 3,
+  "name": "ComfyUI Prompt Manager",
+  "version": "1.0.0",
+  "description": "Save prompts from web pages and send to ComfyUI for image generation",
+  "permissions": [
+    "contextMenus",
+    "storage",
+    "activeTab",
+    "scripting"
+  ],
+  "host_permissions": [
+    "http://127.0.0.1:8188/*",
+    "http://localhost:8188/*",
+    "http://192.168.50.143:8188/*",
+    "http://*/*"
+  ],
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'self'; img-src 'self' http://127.0.0.1:8188 http://localhost:8188 http://192.168.50.143:8188 data: blob:;"
+  },
+  "background": {
+    "service_worker": "dist/background.js",
+    "type": "module"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "ComfyUI Prompt Manager"
+  },
+  "options_page": "options.html",
+  "commands": {
+    "save_prompt_shortcut": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+P",
+        "mac": "Command+Shift+P"
+      },
+      "description": "Save selected text as prompt"
+    }
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  }
+}
