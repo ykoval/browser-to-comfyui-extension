@@ -23,6 +23,79 @@ async function saveHistory(history: PromptEntry[]): Promise<void> {
   await storage.local.set({ [STORAGE_KEYS.HISTORY]: trimmedHistory });
 }
 
+async function clearHistory(): Promise<void> {
+  await storage.local.set({ [STORAGE_KEYS.HISTORY]: [] });
+}
+
+async function getActiveTab(): Promise<string> {
+  const result = await storage.local.get(STORAGE_KEYS.ACTIVE_TAB);
+  return result[STORAGE_KEYS.ACTIVE_TAB] || 'history';
+}
+
+async function setActiveTab(tab: string): Promise<void> {
+  await storage.local.set({ [STORAGE_KEYS.ACTIVE_TAB]: tab });
+}
+
+interface ComfyUIQueueItem {
+  promptId: string;
+  number: number;
+}
+
+interface ComfyUIQueueResponse {
+  queue_running: Array<[number, string, unknown, unknown, unknown]>;
+  queue_pending: Array<[number, string, unknown, unknown, unknown]>;
+}
+
+async function fetchComfyUIQueue(settings: ComfyUISettings): Promise<{ running: ComfyUIQueueItem[]; pending: ComfyUIQueueItem[] }> {
+  const url = `${settings.serverAddress}/queue`;
+  try {
+    const response = await fetch(url);
+    if (!response.ok) return { running: [], pending: [] };
+    
+    const data: ComfyUIQueueResponse = await response.json();
+    
+    const running = (data.queue_running || []).map(item => ({
+      promptId: item[1],
+      number: item[0],
+    }));
+    
+    const pending = (data.queue_pending || []).map(item => ({
+      promptId: item[1],
+      number: item[0],
+    }));
+    
+    return { running, pending };
+  } catch (error) {
+    console.error('Failed to fetch queue:', error);
+    return { running: [], pending: [] };
+  }
+}
+
+async function cancelPrompt(promptId: string, settings: ComfyUISettings): Promise<boolean> {
+  try {
+    const response = await fetch(`${settings.serverAddress}/queue`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ delete: [promptId] }),
+    });
+    if (response.ok) return true;
+    
+    const interruptResponse = await fetch(`${settings.serverAddress}/interrupt`, {
+      method: 'POST',
+    });
+    return interruptResponse.ok;
+  } catch (error) {
+    console.error('Failed to cancel prompt:', error);
+    return false;
+  }
+}
+
+async function deletePromptEntry(id: string): Promise<void> {
+  const history = await getHistory();
+  const filtered = history.filter(entry => entry.id !== id);
+  await saveHistory(filtered);
+}
+
 async function addPromptEntry(text: string): Promise<PromptEntry> {
   const entry: PromptEntry = {
     id: crypto.randomUUID(),
@@ -91,33 +164,51 @@ async function sendToComfyUI(payload: ComfyUIPayload, settings: ComfyUISettings)
   return result.prompt_id;
 }
 
-async function pollForImage(promptId: string, settings: ComfyUISettings, maxAttempts = 120): Promise<string | null> {
+async function pollForImage(promptId: string, settings: ComfyUISettings, maxAttempts = 180): Promise<string | null> {
   const historyUrl = `${settings.serverAddress}/history/${promptId}`;
+  console.log('Polling for image:', historyUrl);
   
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     await new Promise(resolve => setTimeout(resolve, 2000));
     
     try {
       const response = await fetch(historyUrl);
-      if (!response.ok) continue;
+      if (!response.ok) {
+        console.log(`Poll attempt ${attempt}: HTTP ${response.status}`);
+        continue;
+      }
       
-      const history: ComfyUIHistoryResponse = await response.json();
-      const promptHistory = history[promptId];
+      const historyData = await response.json();
+      console.log(`Poll attempt ${attempt}:`, historyData);
       
-      if (promptHistory?.status?.completed) {
+      const promptHistory = historyData[promptId];
+      if (!promptHistory) {
+        console.log('No history for promptId yet');
+        continue;
+      }
+      
+      const hasOutputs = promptHistory.outputs && Object.keys(promptHistory.outputs).length > 0;
+      console.log('Has outputs:', hasOutputs, 'Status:', promptHistory.status);
+      
+      if (hasOutputs) {
         const upscaledNode = promptHistory.outputs['81'];
         const regularNode = promptHistory.outputs['79'];
+        console.log('Node 81:', upscaledNode, 'Node 79:', regularNode);
+        
         const saveImageNode = upscaledNode?.images?.[0] ? upscaledNode : regularNode;
         
         if (saveImageNode?.images?.[0]) {
           const img = saveImageNode.images[0];
-          return `${settings.serverAddress}/view?filename=${encodeURIComponent(img.filename)}&subfolder=${encodeURIComponent(img.subfolder)}&type=${img.type}`;
+          const imageUrl = `${settings.serverAddress}/view?filename=${encodeURIComponent(img.filename)}&subfolder=${encodeURIComponent(img.subfolder)}&type=${img.type}`;
+          console.log('Image URL:', imageUrl);
+          return imageUrl;
         }
       }
     } catch (error) {
       console.error('Poll error:', error);
     }
   }
+  console.log('Polling timed out');
   return null;
 }
 
@@ -312,6 +403,12 @@ export {
   saveSettings,
   getHistory,
   saveHistory,
+  clearHistory,
+  getActiveTab,
+  setActiveTab,
+  fetchComfyUIQueue,
+  cancelPrompt,
+  deletePromptEntry,
   addPromptEntry,
   updatePromptEntry,
   sendToComfyUI,

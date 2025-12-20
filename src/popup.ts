@@ -1,6 +1,6 @@
 /// <reference types="chrome" />
 
-import { getSettings, saveSettings, getHistory, addPromptEntry, sendToComfyUI, pollForImage, updatePromptEntry, getRelativeTime } from './utils';
+import { getSettings, saveSettings, getHistory, clearHistory, getActiveTab, setActiveTab, fetchComfyUIQueue, cancelPrompt, deletePromptEntry, addPromptEntry, sendToComfyUI, pollForImage, updatePromptEntry, getRelativeTime } from './utils';
 import { PromptEntry, ComfyUISettings, ASPECT_RATIOS } from './types';
 
 class PopupApp {
@@ -8,6 +8,7 @@ class PopupApp {
   private generateBtn: HTMLButtonElement;
   private autoSendToggle: HTMLInputElement;
   private historyList: HTMLElement;
+  private clearHistoryBtn: HTMLButtonElement;
   private serverAddressInput: HTMLInputElement;
   private negativePromptInput: HTMLTextAreaElement;
   private seedInput: HTMLInputElement;
@@ -29,6 +30,7 @@ class PopupApp {
     this.generateBtn = document.getElementById('generateBtn') as HTMLButtonElement;
     this.autoSendToggle = document.getElementById('autoSendToggle') as HTMLInputElement;
     this.historyList = document.getElementById('historyList') as HTMLElement;
+    this.clearHistoryBtn = document.getElementById('clearHistoryBtn') as HTMLButtonElement;
     this.serverAddressInput = document.getElementById('serverAddress') as HTMLInputElement;
     this.negativePromptInput = document.getElementById('negativePrompt') as HTMLTextAreaElement;
     this.seedInput = document.getElementById('seed') as HTMLInputElement;
@@ -59,8 +61,64 @@ class PopupApp {
   private async init() {
     this.settings = await getSettings();
     this.history = await getHistory();
+    await this.restoreActiveTab();
     this.updateUI();
     this.bindEvents();
+    this.syncWithComfyUIQueue();
+  }
+
+  private async restoreActiveTab() {
+    const activeTab = await getActiveTab();
+    this.tabBtns.forEach(btn => btn.classList.remove('active'));
+    this.tabContents.forEach(content => content.classList.remove('active'));
+    const tabBtn = document.querySelector(`[data-tab="${activeTab}"]`) as HTMLButtonElement;
+    if (tabBtn) tabBtn.classList.add('active');
+    document.getElementById(`${activeTab}-tab`)?.classList.add('active');
+  }
+
+  private async syncWithComfyUIQueue() {
+    const queue = await fetchComfyUIQueue(this.settings);
+    const runningIds = new Set(queue.running.map(q => q.promptId));
+    const pendingIds = new Set(queue.pending.map(q => q.promptId));
+    
+    let updated = false;
+    for (const entry of this.history) {
+      if (entry.imageStatus === 'generating' && entry.promptId) {
+        if (!runningIds.has(entry.promptId) && !pendingIds.has(entry.promptId)) {
+          const imageUrl = await this.checkHistoryForImage(entry.promptId);
+          if (imageUrl) {
+            await updatePromptEntry(entry.id, { imageStatus: 'done', imageUrl });
+          } else {
+            await updatePromptEntry(entry.id, { imageStatus: 'error' });
+          }
+          updated = true;
+        }
+      }
+    }
+    if (updated) await this.refreshHistory();
+  }
+
+  private async checkHistoryForImage(promptId: string): Promise<string | null> {
+    const historyUrl = `${this.settings.serverAddress}/history/${promptId}`;
+    try {
+      const response = await fetch(historyUrl);
+      if (!response.ok) return null;
+      const data = await response.json();
+      const promptHistory = data[promptId];
+      if (!promptHistory?.outputs) return null;
+      
+      const upscaledNode = promptHistory.outputs['81'];
+      const regularNode = promptHistory.outputs['79'];
+      const saveImageNode = upscaledNode?.images?.[0] ? upscaledNode : regularNode;
+      
+      if (saveImageNode?.images?.[0]) {
+        const img = saveImageNode.images[0];
+        return `${this.settings.serverAddress}/view?filename=${encodeURIComponent(img.filename)}&subfolder=${encodeURIComponent(img.subfolder)}&type=${img.type}`;
+      }
+    } catch (e) {
+      console.error('Check history error:', e);
+    }
+    return null;
   }
 
   private updateUI() {
@@ -82,15 +140,38 @@ class PopupApp {
     this.autoSendToggle.addEventListener('change', this.handleAutoSendToggle.bind(this));
     this.saveSettingsBtn.addEventListener('click', this.handleSaveSettings.bind(this));
     this.tabBtns.forEach(btn => btn.addEventListener('click', this.handleTabClick.bind(this)));
+    this.clearHistoryBtn.addEventListener('click', this.handleClearHistory.bind(this));
+    this.aspectRatioSelect.addEventListener('change', this.handlePromptControlChange.bind(this));
+    this.megapixelInput.addEventListener('change', this.handlePromptControlChange.bind(this));
+    this.stepsInput.addEventListener('change', this.handlePromptControlChange.bind(this));
+    this.enableUpscaleToggle.addEventListener('change', this.handlePromptControlChange.bind(this));
   }
 
-  private handleTabClick(event: Event) {
+  private async handleClearHistory() {
+    if (confirm('Clear all history?')) {
+      await clearHistory();
+      this.history = [];
+      this.renderHistory();
+    }
+  }
+
+  private async handlePromptControlChange() {
+    this.settings.aspectRatio = this.aspectRatioSelect.value;
+    this.settings.megapixel = parseFloat(this.megapixelInput.value) || 2.5;
+    this.settings.steps = parseInt(this.stepsInput.value) || 20;
+    this.settings.enableUpscale = this.enableUpscaleToggle.checked;
+    await saveSettings(this.settings);
+  }
+
+  private async handleTabClick(event: Event) {
     const target = event.target as HTMLButtonElement;
     const tabName = target.dataset.tab;
+    if (!tabName) return;
     this.tabBtns.forEach(btn => btn.classList.remove('active'));
     this.tabContents.forEach(content => content.classList.remove('active'));
     target.classList.add('active');
     document.getElementById(`${tabName}-tab`)?.classList.add('active');
+    await setActiveTab(tabName);
   }
 
   private async handleSaveSettings() {
@@ -129,13 +210,12 @@ class PopupApp {
     this.generateBtn.textContent = 'Generating...';
 
     const entry = await addPromptEntry(prompt);
-    this.history.push(entry);
-    this.renderHistory();
+    await this.refreshHistory();
 
     try {
       const promptId = await sendToComfyUI(this.buildPayload(entry.text), this.settings);
       await updatePromptEntry(entry.id, { imageStatus: 'generating', promptId });
-      this.refreshHistory();
+      await this.refreshHistory();
 
       const imageUrl = await pollForImage(promptId, this.settings);
       if (imageUrl) {
@@ -143,11 +223,11 @@ class PopupApp {
       } else {
         await updatePromptEntry(entry.id, { imageStatus: 'error' });
       }
-      this.refreshHistory();
+      await this.refreshHistory();
     } catch (error) {
       console.error('Generation failed:', error);
       await updatePromptEntry(entry.id, { imageStatus: 'error' });
-      this.refreshHistory();
+      await this.refreshHistory();
     } finally {
       this.generateBtn.disabled = false;
       this.generateBtn.textContent = 'Generate';
@@ -198,25 +278,64 @@ class PopupApp {
         item.appendChild(img);
       }
 
+      const content = document.createElement('div');
+      content.className = 'history-item-content';
+
       const text = document.createElement('div');
       text.className = 'prompt-text';
-      text.textContent = entry.text.length > 100 ? entry.text.substring(0, 100) + '...' : entry.text;
+      text.textContent = entry.text;
       text.title = entry.text;
 
       const meta = document.createElement('div');
       meta.className = 'meta';
       meta.innerHTML = `<span class="timestamp">${getRelativeTime(entry.createdAt)}</span> · <span class="status status-${entry.imageStatus}">${entry.imageStatus}</span>`;
 
-      const sendBtn = document.createElement('button');
-      sendBtn.textContent = entry.imageStatus === 'generating' ? 'Generating...' : 'Send to ComfyUI';
-      sendBtn.disabled = entry.imageStatus === 'generating';
-      sendBtn.addEventListener('click', () => this.handleSendToComfyUI(entry.id));
+      content.appendChild(text);
+      content.appendChild(meta);
+      item.appendChild(content);
 
-      item.appendChild(text);
-      item.appendChild(meta);
-      item.appendChild(sendBtn);
+      const actions = document.createElement('div');
+      actions.className = 'history-item-actions';
+
+      if (entry.imageStatus === 'generating') {
+        const cancelBtn = document.createElement('button');
+        cancelBtn.className = 'btn-cancel';
+        cancelBtn.textContent = '✕';
+        cancelBtn.title = 'Cancel';
+        cancelBtn.addEventListener('click', () => this.handleCancelGeneration(entry));
+        actions.appendChild(cancelBtn);
+      } else if (entry.imageStatus === 'pending' || entry.imageStatus === 'error') {
+        const sendBtn = document.createElement('button');
+        sendBtn.className = 'btn-send';
+        sendBtn.textContent = '▶';
+        sendBtn.title = 'Generate';
+        sendBtn.addEventListener('click', () => this.handleSendToComfyUI(entry.id));
+        actions.appendChild(sendBtn);
+      }
+
+      const deleteBtn = document.createElement('button');
+      deleteBtn.className = 'btn-delete';
+      deleteBtn.textContent = '🗑';
+      deleteBtn.title = 'Delete';
+      deleteBtn.addEventListener('click', () => this.handleDeleteEntry(entry.id));
+      actions.appendChild(deleteBtn);
+
+      item.appendChild(actions);
       this.historyList.appendChild(item);
     });
+  }
+
+  private async handleCancelGeneration(entry: PromptEntry) {
+    if (entry.promptId) {
+      await cancelPrompt(entry.promptId, this.settings);
+    }
+    await updatePromptEntry(entry.id, { imageStatus: 'error' });
+    await this.refreshHistory();
+  }
+
+  private async handleDeleteEntry(entryId: string) {
+    await deletePromptEntry(entryId);
+    await this.refreshHistory();
   }
 
   private async refreshHistory() {

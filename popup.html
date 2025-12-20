@@ -9,11 +9,25 @@
 <body>
   <div id="app">
     <div class="tabs">
-      <button class="tab-btn active" data-tab="prompt">Prompt</button>
+      <button class="tab-btn active" data-tab="history">History</button>
+      <button class="tab-btn" data-tab="manual">Manual</button>
       <button class="tab-btn" data-tab="settings">Settings</button>
     </div>
 
-    <div id="prompt-tab" class="tab-content active">
+    <div id="history-tab" class="tab-content active">
+      <div class="history-header">
+        <div class="auto-send-toggle">
+          <label>
+            <input type="checkbox" id="autoSendToggle">
+            Auto-send selection
+          </label>
+        </div>
+        <button id="clearHistoryBtn" class="icon-btn" title="Clear history">🗑</button>
+      </div>
+      <div class="history" id="historyList"></div>
+    </div>
+
+    <div id="manual-tab" class="tab-content">
       <div class="manual-prompt">
         <textarea id="promptInput" placeholder="Enter or edit prompt..."></textarea>
         <div class="generation-controls">
@@ -27,13 +41,6 @@
         </div>
         <button id="generateBtn">Generate</button>
       </div>
-      <div class="auto-send-toggle">
-        <label>
-          <input type="checkbox" id="autoSendToggle">
-          Auto-send selection to ComfyUI
-        </label>
-      </div>
-      <div class="history" id="historyList"></div>
     </div>
 
     <div id="settings-tab" class="tab-content">

@@ -42,6 +42,7 @@ interface ComfyUIResponse {
 const STORAGE_KEYS = {
   SETTINGS: 'comfyuiSettings',
   HISTORY: 'promptHistory',
+  ACTIVE_TAB: 'activeTab',
 } as const;
 
 const ASPECT_RATIOS = [
