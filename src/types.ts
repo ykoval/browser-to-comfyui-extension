@@ -46,17 +46,21 @@ const STORAGE_KEYS = {
 } as const;
 
 const ASPECT_RATIOS = [
-  '1:1 ⬜',
+  '1:1 ◻',
+  '5:4 ▭',
   '4:3 ▭',
   '3:2 ▭',
   '16:9 ▭',
-  '21:9 ▭',
   '2:1 ▭',
+  '21:9 ▭',
+  '32:9 ▭',
+  '4:5 ▯',
   '3:4 ▯',
   '2:3 ▯',
   '9:16 ▯',
-  '9:21 ▯',
   '1:2 ▯',
+  '9:21 ▯',
+  '9:32 ▯',
 ] as const;
 
 const DEFAULT_SETTINGS: ComfyUISettings = {
