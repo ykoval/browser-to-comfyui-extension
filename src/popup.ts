@@ -245,10 +245,11 @@ class PopupApp {
 
     try {
       await updatePromptEntry(entryId, { imageStatus: 'generating' });
-      this.refreshHistory();
+      await this.refreshHistory();
 
       const promptId = await sendToComfyUI(this.buildPayload(entry.text), this.settings);
       await updatePromptEntry(entryId, { promptId });
+      await this.refreshHistory();
 
       const imageUrl = await pollForImage(promptId, this.settings);
       if (imageUrl) {
@@ -256,11 +257,11 @@ class PopupApp {
       } else {
         await updatePromptEntry(entryId, { imageStatus: 'error' });
       }
-      this.refreshHistory();
+      await this.refreshHistory();
     } catch (error) {
       console.error('Send failed:', error);
       await updatePromptEntry(entryId, { imageStatus: 'error' });
-      this.refreshHistory();
+      await this.refreshHistory();
     }
   }
 

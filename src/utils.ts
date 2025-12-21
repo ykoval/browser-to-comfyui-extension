@@ -234,7 +234,7 @@ function buildComfyUIWorkflow(payload: ComfyUIPayload): object {
     "6": {
       "inputs": {
         "text": ["109", 1],
-        "clip": ["103", 0]
+        "clip": ["74", 1]
       },
       "class_type": "CLIPTextEncode"
     },
@@ -248,9 +248,16 @@ function buildComfyUIWorkflow(payload: ComfyUIPayload): object {
     "66": {
       "inputs": {
         "shift": 3,
-        "model": ["104", 0]
+        "model": ["74", 0]
       },
       "class_type": "ModelSamplingAuraFlow"
+    },
+    "74": {
+      "inputs": {
+        "model": ["104", 0],
+        "clip": ["103", 0]
+      },
+      "class_type": "Power Lora Loader (rgthree)"
     },
     "79": {
       "inputs": {
@@ -278,7 +285,7 @@ function buildComfyUIWorkflow(payload: ComfyUIPayload): object {
     "105": {
       "inputs": {
         "text": payload.negativePrompt || "dust, dots, stain",
-        "clip": ["103", 0]
+        "clip": ["74", 1]
       },
       "class_type": "CLIPTextEncode"
     },
@@ -322,6 +329,7 @@ function buildComfyUIWorkflow(payload: ComfyUIPayload): object {
   };
 
   if (payload.enableUpscale) {
+    const upscaleSeed = Math.floor(Math.random() * 1000000000000);
     Object.assign(baseWorkflow, {
       "81": {
         "inputs": {
@@ -332,7 +340,7 @@ function buildComfyUIWorkflow(payload: ComfyUIPayload): object {
       },
       "83": {
         "inputs": {
-          "seed": seed + 1,
+          "seed": upscaleSeed,
           "steps": 8,
           "cfg": 1,
           "sampler_name": "res_multistep",
@@ -372,6 +380,12 @@ function buildComfyUIWorkflow(payload: ComfyUIPayload): object {
           "vae": ["112", 0]
         },
         "class_type": "VAEDecode"
+      },
+      "89": {
+        "inputs": {
+          "anything": ["88", 0]
+        },
+        "class_type": "easy cleanGpuUsed"
       },
       "90": {
         "inputs": {
