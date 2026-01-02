@@ -434,3 +434,128 @@ body {
   color: var(--neon-green);
   text-align: center;
 }
+
+.auto-detect-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 10px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  margin-bottom: 10px;
+}
+
+.auto-detect-toggle label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.auto-detect-toggle input {
+  accent-color: var(--neon-cyan);
+}
+
+.auto-detect-toggle .domain-label {
+  font-size: 10px;
+  color: var(--text-muted);
+  background: var(--bg-input);
+  padding: 2px 6px;
+  border-radius: 4px;
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.form-group-header {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--neon-cyan);
+  margin: 16px 0 10px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.scan-page-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.btn-scan {
+  padding: 6px 14px;
+  background: var(--bg-card);
+  color: var(--neon-cyan);
+  border: 1px solid var(--neon-cyan);
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 500;
+  transition: all 0.2s;
+}
+
+.btn-scan:hover:not(:disabled) {
+  background: var(--neon-cyan);
+  color: var(--bg-dark);
+}
+
+.btn-scan:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.scan-status {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.scan-status.success {
+  color: var(--neon-green);
+}
+
+.btn-secondary {
+  background: transparent;
+  color: var(--text-muted);
+  border-color: var(--border-color);
+}
+
+.btn-secondary:hover:not(:disabled) {
+  color: var(--neon-cyan);
+  border-color: var(--neon-cyan);
+  background: transparent;
+}
+
+.paste-area {
+  margin-bottom: 10px;
+}
+
+.paste-area.hidden {
+  display: none;
+}
+
+.paste-area textarea {
+  width: 100%;
+  height: 80px;
+  padding: 8px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  color: var(--text-primary);
+  font-size: 12px;
+  resize: vertical;
+  margin-bottom: 8px;
+}
+
+.paste-area textarea:focus {
+  outline: none;
+  border-color: var(--neon-cyan);
+}
+
+.paste-area textarea::placeholder {
+  color: var(--text-muted);
+}

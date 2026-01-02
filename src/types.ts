@@ -12,6 +12,8 @@ interface ComfyUISettings {
   aspectRatio: string;
   megapixel: number;
   enableUpscale: boolean;
+  promptStartMarker: string;
+  promptEndMarker: string;
 }
 
 interface PromptEntry {
@@ -43,6 +45,7 @@ const STORAGE_KEYS = {
   SETTINGS: 'comfyuiSettings',
   HISTORY: 'promptHistory',
   ACTIVE_TAB: 'activeTab',
+  AUTO_DETECT_DOMAINS: 'autoDetectDomains',
 } as const;
 
 const ASPECT_RATIOS = [
@@ -77,6 +80,8 @@ const DEFAULT_SETTINGS: ComfyUISettings = {
   aspectRatio: '16:9 ▭',
   megapixel: 2.5,
   enableUpscale: false,
+  promptStartMarker: '[PROMPT START]',
+  promptEndMarker: '[PROMPT END]',
 };
 
 const MAX_HISTORY_ENTRIES = 50;

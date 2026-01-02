@@ -1,0 +1,300 @@
+/// <reference types="chrome" />
+
+interface AutoDetectSettings {
+  startMarker: string;
+  endMarker: string;
+}
+
+class PromptAutoDetector {
+  private observer: MutationObserver | null = null;
+  private settings: AutoDetectSettings | null = null;
+  private detectedPrompts: Set<string> = new Set();
+  private detectedCount: number = 0;
+  private indicator: HTMLElement | null = null;
+  private isActive: boolean = false;
+  private scanDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+  private isDragging: boolean = false;
+  private dragOffset: { x: number; y: number } = { x: 0, y: 0 };
+
+  constructor() {
+    this.setupMessageListener();
+  }
+
+  private setupMessageListener() {
+    chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+      if (message.type === 'INIT_AUTO_DETECT') {
+        this.start(message.settings);
+        sendResponse({ success: true });
+      } else if (message.type === 'STOP_AUTO_DETECT') {
+        this.stop();
+        sendResponse({ success: true });
+      }
+      return true;
+    });
+  }
+
+  private start(settings: AutoDetectSettings) {
+    this.settings = settings;
+    
+    if (this.isActive) {
+      this.scanPage();
+      return;
+    }
+    
+    this.isActive = true;
+    this.createIndicator();
+    this.scanPage();
+    this.startObserver();
+  }
+
+  private stop() {
+    this.isActive = false;
+    this.stopObserver();
+    this.removeIndicator();
+    this.detectedPrompts.clear();
+    this.detectedCount = 0;
+  }
+
+  private createIndicator() {
+    if (this.indicator) return;
+
+    this.indicator = document.createElement('div');
+    this.indicator.id = 'comfyui-auto-detect-indicator';
+    this.indicator.innerHTML = `
+      <div class="comfyui-indicator-icon">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="12" cy="12" r="10"/>
+          <path d="M12 6v6l4 2"/>
+        </svg>
+      </div>
+      <div class="comfyui-indicator-badge">0</div>
+    `;
+    
+    const style = document.createElement('style');
+    style.textContent = `
+      #comfyui-auto-detect-indicator {
+        position: fixed;
+        bottom: 20px;
+        right: 20px;
+        width: 48px;
+        height: 48px;
+        background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+        border: 2px solid #00ff88;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        cursor: grab;
+        z-index: 2147483647;
+        box-shadow: 0 4px 20px rgba(0, 255, 136, 0.3), 0 0 30px rgba(0, 255, 136, 0.1);
+        transition: box-shadow 0.3s ease, transform 0.1s ease;
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+        user-select: none;
+      }
+      #comfyui-auto-detect-indicator:hover {
+        box-shadow: 0 6px 30px rgba(0, 255, 136, 0.5), 0 0 40px rgba(0, 255, 136, 0.2);
+      }
+      #comfyui-auto-detect-indicator.dragging {
+        cursor: grabbing;
+        transform: scale(1.1);
+      }
+      #comfyui-auto-detect-indicator .comfyui-indicator-icon {
+        color: #00ff88;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        pointer-events: none;
+      }
+      #comfyui-auto-detect-indicator .comfyui-indicator-badge {
+        position: absolute;
+        top: -4px;
+        right: -4px;
+        min-width: 20px;
+        height: 20px;
+        background: #ff2e97;
+        color: white;
+        font-size: 11px;
+        font-weight: bold;
+        border-radius: 10px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 0 6px;
+        box-shadow: 0 2px 8px rgba(255, 46, 151, 0.5);
+        pointer-events: none;
+      }
+      #comfyui-auto-detect-indicator.pulse .comfyui-indicator-badge {
+        animation: comfyui-pulse 0.6s ease-out;
+      }
+      #comfyui-auto-detect-indicator.scanning {
+        animation: comfyui-spin 1s linear infinite;
+      }
+      @keyframes comfyui-pulse {
+        0% { transform: scale(1); }
+        50% { transform: scale(1.3); background: #00ff88; }
+        100% { transform: scale(1); }
+      }
+      @keyframes comfyui-spin {
+        from { transform: rotate(0deg); }
+        to { transform: rotate(360deg); }
+      }
+    `;
+    
+    document.head.appendChild(style);
+    document.body.appendChild(this.indicator);
+    
+    this.setupDraggable();
+  }
+
+  private setupDraggable() {
+    if (!this.indicator) return;
+
+    let startX = 0;
+    let startY = 0;
+    let hasMoved = false;
+
+    const onMouseDown = (e: MouseEvent) => {
+      if (!this.indicator) return;
+      e.preventDefault();
+      this.isDragging = true;
+      hasMoved = false;
+      startX = e.clientX;
+      startY = e.clientY;
+      
+      const rect = this.indicator.getBoundingClientRect();
+      this.dragOffset.x = e.clientX - rect.left;
+      this.dragOffset.y = e.clientY - rect.top;
+      
+      this.indicator.classList.add('dragging');
+      document.addEventListener('mousemove', onMouseMove);
+      document.addEventListener('mouseup', onMouseUp);
+    };
+
+    const onMouseMove = (e: MouseEvent) => {
+      if (!this.isDragging || !this.indicator) return;
+      
+      const dx = Math.abs(e.clientX - startX);
+      const dy = Math.abs(e.clientY - startY);
+      if (dx > 5 || dy > 5) hasMoved = true;
+      
+      const x = e.clientX - this.dragOffset.x;
+      const y = e.clientY - this.dragOffset.y;
+      
+      const maxX = window.innerWidth - this.indicator.offsetWidth;
+      const maxY = window.innerHeight - this.indicator.offsetHeight;
+      
+      this.indicator.style.left = `${Math.max(0, Math.min(x, maxX))}px`;
+      this.indicator.style.top = `${Math.max(0, Math.min(y, maxY))}px`;
+      this.indicator.style.right = 'auto';
+      this.indicator.style.bottom = 'auto';
+    };
+
+    const onMouseUp = () => {
+      if (!this.indicator) return;
+      this.isDragging = false;
+      this.indicator.classList.remove('dragging');
+      document.removeEventListener('mousemove', onMouseMove);
+      document.removeEventListener('mouseup', onMouseUp);
+      
+      if (!hasMoved) {
+        this.handleIndicatorClick();
+      }
+    };
+
+    this.indicator.addEventListener('mousedown', onMouseDown);
+  }
+
+  private handleIndicatorClick() {
+    if (!this.indicator) return;
+    this.indicator.classList.add('scanning');
+    this.scanPage();
+    setTimeout(() => {
+      this.indicator?.classList.remove('scanning');
+    }, 500);
+  }
+
+  private removeIndicator() {
+    if (this.indicator) {
+      this.indicator.remove();
+      this.indicator = null;
+    }
+  }
+
+  private updateBadge(count: number) {
+    if (!this.indicator) return;
+    const badge = this.indicator.querySelector('.comfyui-indicator-badge');
+    if (badge) {
+      badge.textContent = count.toString();
+      this.indicator.classList.remove('pulse');
+      void this.indicator.offsetWidth;
+      this.indicator.classList.add('pulse');
+    }
+  }
+
+  private startObserver() {
+    if (this.observer) return;
+
+    this.observer = new MutationObserver(() => {
+      this.debouncedScan();
+    });
+
+    this.observer.observe(document.body, {
+      childList: true,
+      subtree: true,
+      characterData: true,
+    });
+  }
+
+  private debouncedScan() {
+    if (this.scanDebounceTimer) {
+      clearTimeout(this.scanDebounceTimer);
+    }
+    this.scanDebounceTimer = setTimeout(() => {
+      this.scanPage();
+    }, 500);
+  }
+
+  private stopObserver() {
+    if (this.observer) {
+      this.observer.disconnect();
+      this.observer = null;
+    }
+  }
+
+  private scanPage() {
+    if (!this.settings || !this.isActive) return;
+    
+    const pageText = document.body.innerText;
+    const { startMarker, endMarker } = this.settings;
+    let searchStart = 0;
+
+    while (searchStart < pageText.length) {
+      const startIndex = pageText.indexOf(startMarker, searchStart);
+      if (startIndex === -1) break;
+
+      const contentStart = startIndex + startMarker.length;
+      const endIndex = pageText.indexOf(endMarker, contentStart);
+      if (endIndex === -1) break;
+
+      const promptText = pageText.substring(contentStart, endIndex).trim();
+      
+      if (promptText && !this.detectedPrompts.has(promptText)) {
+        this.detectedPrompts.add(promptText);
+        this.detectedCount++;
+        this.updateBadge(this.detectedCount);
+        this.sendPromptToBackground(promptText);
+      }
+
+      searchStart = endIndex + endMarker.length;
+    }
+  }
+
+  private sendPromptToBackground(text: string) {
+    chrome.runtime.sendMessage({
+      type: 'AUTO_DETECTED_PROMPT',
+      text: text,
+    });
+  }
+}
+
+const detector = new PromptAutoDetector();

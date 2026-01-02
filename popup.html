@@ -24,6 +24,22 @@
         </div>
         <button id="clearHistoryBtn" class="icon-btn" title="Clear history">🗑</button>
       </div>
+      <div class="auto-detect-toggle">
+        <label>
+          <input type="checkbox" id="autoDetectToggle">
+          <span>Automatic prompt detection on this site</span>
+        </label>
+        <span id="currentDomain" class="domain-label"></span>
+      </div>
+      <div class="scan-page-row">
+        <button id="scanPageBtn" class="btn-scan">Scan Page</button>
+        <button id="togglePasteBtn" class="btn-scan btn-secondary">Paste & Scan</button>
+        <span id="scanStatus" class="scan-status"></span>
+      </div>
+      <div id="pasteArea" class="paste-area hidden">
+        <textarea id="pasteInput" placeholder="Paste page content here (Cmd/Ctrl+A to select all on page, then Cmd/Ctrl+C to copy)..."></textarea>
+        <button id="scanPasteBtn" class="btn-scan">Scan Pasted Text</button>
+      </div>
       <div class="history" id="historyList"></div>
     </div>
 
@@ -66,6 +82,15 @@
             <input type="checkbox" id="enableSeparator" checked>
             Add === separator (for Title/Keywords parsing)
           </label>
+        </div>
+        <div class="form-group-header">Automatic Prompt Detection</div>
+        <div class="form-group">
+          <label for="promptStartMarker">Prompt Start Marker:</label>
+          <input type="text" id="promptStartMarker" placeholder="[PROMPT START]">
+        </div>
+        <div class="form-group">
+          <label for="promptEndMarker">Prompt End Marker:</label>
+          <input type="text" id="promptEndMarker" placeholder="[PROMPT END]">
         </div>
         <button id="saveSettingsBtn">Save Settings</button>
         <div id="settingsStatus"></div>

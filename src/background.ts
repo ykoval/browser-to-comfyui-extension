@@ -1,6 +1,6 @@
 /// <reference types="chrome" />
 
-import { getSettings, addPromptEntry, sendToComfyUI, pollForImage, updatePromptEntry } from './utils';
+import { getSettings, addPromptEntry, sendToComfyUI, pollForImage, updatePromptEntry, isPromptDuplicate } from './utils';
 
 chrome.runtime.onInstalled.addListener(() => {
   chrome.contextMenus.removeAll(() => {
@@ -56,6 +56,42 @@ chrome.contextMenus.onClicked.addListener(async (info: chrome.contextMenus.OnCli
     }
   }
 });
+
+chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+  if (message.type === 'AUTO_DETECTED_PROMPT') {
+    handleAutoDetectedPrompt(message.text);
+    sendResponse({ success: true });
+  } else if (message.type === 'OPEN_POPUP') {
+    chrome.action.openPopup();
+    sendResponse({ success: true });
+  }
+  return true;
+});
+
+async function handleAutoDetectedPrompt(text: string) {
+  const isDuplicate = await isPromptDuplicate(text);
+  if (isDuplicate) return;
+
+  const settings = await getSettings();
+  const entry = await addPromptEntry(text);
+
+  if (settings.autoSend) {
+    try {
+      const promptId = await sendToComfyUI(buildPayload(entry.text, settings), settings);
+      await updatePromptEntry(entry.id, { imageStatus: 'generating', promptId });
+
+      const imageUrl = await pollForImage(promptId, settings);
+      if (imageUrl) {
+        await updatePromptEntry(entry.id, { imageStatus: 'done', imageUrl });
+      } else {
+        await updatePromptEntry(entry.id, { imageStatus: 'error' });
+      }
+    } catch (error) {
+      console.error('Auto-detect auto-send failed:', error);
+      await updatePromptEntry(entry.id, { imageStatus: 'error' });
+    }
+  }
+}
 
 chrome.commands.onCommand.addListener(async (command: string) => {
   if (command === 'save_prompt_shortcut') {

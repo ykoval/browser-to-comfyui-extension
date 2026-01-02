@@ -36,6 +36,45 @@ async function setActiveTab(tab: string): Promise<void> {
   await storage.local.set({ [STORAGE_KEYS.ACTIVE_TAB]: tab });
 }
 
+async function getAutoDetectDomains(): Promise<string[]> {
+  const result = await storage.local.get(STORAGE_KEYS.AUTO_DETECT_DOMAINS);
+  return result[STORAGE_KEYS.AUTO_DETECT_DOMAINS] || [];
+}
+
+async function saveAutoDetectDomains(domains: string[]): Promise<void> {
+  await storage.local.set({ [STORAGE_KEYS.AUTO_DETECT_DOMAINS]: domains });
+}
+
+async function isAutoDetectEnabled(domain: string): Promise<boolean> {
+  const domains = await getAutoDetectDomains();
+  return domains.includes(domain);
+}
+
+async function toggleAutoDetect(domain: string, enabled: boolean): Promise<void> {
+  const domains = await getAutoDetectDomains();
+  if (enabled && !domains.includes(domain)) {
+    domains.push(domain);
+  } else if (!enabled) {
+    const index = domains.indexOf(domain);
+    if (index > -1) domains.splice(index, 1);
+  }
+  await saveAutoDetectDomains(domains);
+}
+
+function extractDomain(url: string): string {
+  try {
+    return new URL(url).hostname;
+  } catch {
+    return '';
+  }
+}
+
+async function isPromptDuplicate(text: string): Promise<boolean> {
+  const history = await getHistory();
+  const normalizedText = text.trim().toLowerCase();
+  return history.some(entry => entry.text.trim().toLowerCase() === normalizedText);
+}
+
 interface ComfyUIQueueItem {
   promptId: string;
   number: number;
@@ -65,8 +104,7 @@ async function fetchComfyUIQueue(settings: ComfyUISettings): Promise<{ running: 
     }));
     
     return { running, pending };
-  } catch (error) {
-    console.error('Failed to fetch queue:', error);
+  } catch {
     return { running: [], pending: [] };
   }
 }
@@ -420,6 +458,12 @@ export {
   clearHistory,
   getActiveTab,
   setActiveTab,
+  getAutoDetectDomains,
+  saveAutoDetectDomains,
+  isAutoDetectEnabled,
+  toggleAutoDetect,
+  extractDomain,
+  isPromptDuplicate,
   fetchComfyUIQueue,
   cancelPrompt,
   deletePromptEntry,
