@@ -1,4 +1,6 @@
 import { ComfyUISettings, PromptEntry, STORAGE_KEYS, DEFAULT_SETTINGS, MAX_HISTORY_ENTRIES, ComfyUIPayload } from './types';
+import baseWorkflowTemplate from './workflows/qwen-t2i-base.json';
+import upscaleNodesTemplate from './workflows/qwen-t2i-upscale.json';
 
 /// <reference types="chrome" />
 
@@ -250,192 +252,33 @@ async function pollForImage(promptId: string, settings: ComfyUISettings, maxAtte
   return null;
 }
 
+type WorkflowNode = {
+  inputs: Record<string, unknown>;
+  class_type: string;
+};
+
+type WorkflowTemplate = Record<string, WorkflowNode>;
+
 function buildComfyUIWorkflow(payload: ComfyUIPayload): object {
   const seed = payload.seed === -1 ? Math.floor(Math.random() * 1000000000000) : payload.seed;
   
-  const baseWorkflow: Record<string, object> = {
-    "3": {
-      "inputs": {
-        "seed": seed,
-        "steps": payload.steps,
-        "cfg": payload.cfg,
-        "sampler_name": "er_sde",
-        "scheduler": "beta",
-        "denoise": 1,
-        "model": ["66", 0],
-        "positive": ["6", 0],
-        "negative": ["105", 0],
-        "latent_image": ["114", 0]
-      },
-      "class_type": "KSampler"
-    },
-    "6": {
-      "inputs": {
-        "text": ["109", 1],
-        "clip": ["74", 1]
-      },
-      "class_type": "CLIPTextEncode"
-    },
-    "8": {
-      "inputs": {
-        "samples": ["3", 0],
-        "vae": ["112", 0]
-      },
-      "class_type": "VAEDecode"
-    },
-    "66": {
-      "inputs": {
-        "shift": 3,
-        "model": ["74", 0]
-      },
-      "class_type": "ModelSamplingAuraFlow"
-    },
-    "74": {
-      "inputs": {
-        "model": ["104", 0],
-        "clip": ["103", 0]
-      },
-      "class_type": "Power Lora Loader (rgthree)"
-    },
-    "79": {
-      "inputs": {
-        "filename_prefix": "Qwen image/QwenImageT2I",
-        "images": ["8", 0]
-      },
-      "class_type": "SaveImage"
-    },
-    "103": {
-      "inputs": {
-        "clip_name": "qwen_2.5_vl_7b_fp8_scaled.safetensors",
-        "type": "qwen_image",
-        "device": "cpu"
-      },
-      "class_type": "CLIPLoaderMultiGPU"
-    },
-    "104": {
-      "inputs": {
-        "unet_name": "jibMixQwen_v50.safetensors",
-        "weight_dtype": "fp8_e4m3fn",
-        "device": "cuda:1"
-      },
-      "class_type": "UNETLoaderMultiGPU"
-    },
-    "105": {
-      "inputs": {
-        "text": payload.negativePrompt || "dust, dots, stain",
-        "clip": ["74", 1]
-      },
-      "class_type": "CLIPTextEncode"
-    },
-    "109": {
-      "inputs": {
-        "source": ["110", 0],
-        "split_by": "===",
-        "from_right": "true"
-      },
-      "class_type": "JWStringSplit"
-    },
-    "110": {
-      "inputs": {
-        "text": payload.prompt
-      },
-      "class_type": "JWStringMultiline"
-    },
-    "112": {
-      "inputs": {
-        "vae_name": "qwen_image_vae.safetensors",
-        "device": "cuda:1"
-      },
-      "class_type": "VAELoaderMultiGPU"
-    },
-    "113": {
-      "inputs": {
-        "ratio": payload.aspectRatio,
-        "Megapixel": payload.megapixel,
-        "Precision": 0.2
-      },
-      "class_type": "Ratio to Size"
-    },
-    "114": {
-      "inputs": {
-        "width": ["113", 0],
-        "height": ["113", 1],
-        "batch_size": 1
-      },
-      "class_type": "EmptyLatentImage"
-    }
-  };
+  const workflow: WorkflowTemplate = structuredClone(baseWorkflowTemplate) as WorkflowTemplate;
+  
+  workflow["3"].inputs.seed = seed;
+  workflow["3"].inputs.steps = payload.steps;
+  workflow["3"].inputs.cfg = payload.cfg;
+  workflow["105"].inputs.text = payload.negativePrompt || "dust, dots, stain";
+  workflow["110"].inputs.text = payload.prompt;
+  workflow["113"].inputs.ratio = payload.aspectRatio;
+  workflow["113"].inputs.Megapixel = payload.megapixel;
 
   if (payload.enableUpscale) {
-    const upscaleSeed = Math.floor(Math.random() * 1000000000000);
-    Object.assign(baseWorkflow, {
-      "81": {
-        "inputs": {
-          "filename_prefix": "Qwen image/QwenImageT2I_UP",
-          "images": ["88", 0]
-        },
-        "class_type": "SaveImage"
-      },
-      "83": {
-        "inputs": {
-          "seed": upscaleSeed,
-          "steps": 8,
-          "cfg": 1,
-          "sampler_name": "res_multistep",
-          "scheduler": "simple",
-          "denoise": 0.2,
-          "model": ["66", 0],
-          "positive": ["6", 0],
-          "negative": ["105", 0],
-          "latent_image": ["90", 0]
-        },
-        "class_type": "KSampler"
-      },
-      "85": {
-        "inputs": {
-          "model_name": "4x_NMKD-Siax_200k.pth"
-        },
-        "class_type": "UpscaleModelLoader"
-      },
-      "86": {
-        "inputs": {
-          "upscale_model": ["85", 0],
-          "image": ["8", 0]
-        },
-        "class_type": "ImageUpscaleWithModel"
-      },
-      "87": {
-        "inputs": {
-          "upscale_method": "lanczos",
-          "scale_by": 0.5,
-          "image": ["86", 0]
-        },
-        "class_type": "ImageScaleBy"
-      },
-      "88": {
-        "inputs": {
-          "samples": ["83", 0],
-          "vae": ["112", 0]
-        },
-        "class_type": "VAEDecode"
-      },
-      "89": {
-        "inputs": {
-          "anything": ["88", 0]
-        },
-        "class_type": "easy cleanGpuUsed"
-      },
-      "90": {
-        "inputs": {
-          "pixels": ["87", 0],
-          "vae": ["112", 0]
-        },
-        "class_type": "VAEEncode"
-      }
-    });
+    const upscaleNodes = structuredClone(upscaleNodesTemplate) as WorkflowTemplate;
+    upscaleNodes["83"].inputs.seed = Math.floor(Math.random() * 1000000000000);
+    Object.assign(workflow, upscaleNodes);
   }
 
-  return { prompt: baseWorkflow };
+  return { prompt: workflow };
 }
 
 function getRelativeTime(timestamp: number): string {

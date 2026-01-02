@@ -1,0 +1,105 @@
+{
+  "3": {
+    "inputs": {
+      "seed": 0,
+      "steps": 25,
+      "cfg": 4,
+      "sampler_name": "er_sde",
+      "scheduler": "beta",
+      "denoise": 1,
+      "model": ["66", 0],
+      "positive": ["6", 0],
+      "negative": ["105", 0],
+      "latent_image": ["114", 0]
+    },
+    "class_type": "KSampler"
+  },
+  "6": {
+    "inputs": {
+      "text": ["109", 1],
+      "clip": ["103", 0]
+    },
+    "class_type": "CLIPTextEncode"
+  },
+  "8": {
+    "inputs": {
+      "samples": ["3", 0],
+      "vae": ["112", 0]
+    },
+    "class_type": "VAEDecode"
+  },
+  "66": {
+    "inputs": {
+      "shift": 3,
+      "model": ["104", 0]
+    },
+    "class_type": "ModelSamplingAuraFlow"
+  },
+  "79": {
+    "inputs": {
+      "filename_prefix": "Qwen image/QwenImageT2I",
+      "images": ["8", 0]
+    },
+    "class_type": "SaveImage"
+  },
+  "103": {
+    "inputs": {
+      "clip_name": "qwen_2.5_vl_7b_fp8_scaled.safetensors",
+      "type": "qwen_image",
+      "device": "cuda:0"
+    },
+    "class_type": "CLIPLoaderMultiGPU"
+  },
+  "104": {
+    "inputs": {
+      "unet_name": "jibMixQwen_v50.safetensors",
+      "weight_dtype": "fp8_e5m2",
+      "device": "cuda:1"
+    },
+    "class_type": "UNETLoaderMultiGPU"
+  },
+  "105": {
+    "inputs": {
+      "text": "dust, dots, stain",
+      "clip": ["103", 0]
+    },
+    "class_type": "CLIPTextEncode"
+  },
+  "109": {
+    "inputs": {
+      "source": ["110", 0],
+      "split_by": "===",
+      "from_right": "true"
+    },
+    "class_type": "JWStringSplit"
+  },
+  "110": {
+    "inputs": {
+      "text": ""
+    },
+    "class_type": "JWStringMultiline"
+  },
+  "112": {
+    "inputs": {
+      "vae_name": "qwen_image_vae.safetensors",
+      "device": "cuda:1"
+    },
+    "class_type": "VAELoaderMultiGPU"
+  },
+  "113": {
+    "inputs": {
+      "ratio": "16:9 ▭",
+      "Megapixel": 2.5,
+      "Precision": 0.2
+    },
+    "class_type": "Ratio to Size"
+  },
+  "114": {
+    "inputs": {
+      "width": ["113", 0],
+      "height": ["113", 1],
+      "batch_size": 1
+    },
+    "class_type": "EmptyLatentImage"
+  }
+}

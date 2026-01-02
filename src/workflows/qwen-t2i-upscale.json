@@ -1,0 +1,59 @@
+{
+  "81": {
+    "inputs": {
+      "filename_prefix": "Qwen image/QwenImageT2I_UP",
+      "images": ["88", 0]
+    },
+    "class_type": "SaveImage"
+  },
+  "83": {
+    "inputs": {
+      "seed": 0,
+      "steps": 8,
+      "cfg": 1,
+      "sampler_name": "res_multistep",
+      "scheduler": "simple",
+      "denoise": 0.2,
+      "model": ["66", 0],
+      "positive": ["6", 0],
+      "negative": ["105", 0],
+      "latent_image": ["90", 0]
+    },
+    "class_type": "KSampler"
+  },
+  "85": {
+    "inputs": {
+      "model_name": "4x_NMKD-Siax_200k.pth"
+    },
+    "class_type": "UpscaleModelLoader"
+  },
+  "86": {
+    "inputs": {
+      "upscale_model": ["85", 0],
+      "image": ["8", 0]
+    },
+    "class_type": "ImageUpscaleWithModel"
+  },
+  "87": {
+    "inputs": {
+      "upscale_method": "lanczos",
+      "scale_by": 0.5,
+      "image": ["86", 0]
+    },
+    "class_type": "ImageScaleBy"
+  },
+  "88": {
+    "inputs": {
+      "samples": ["83", 0],
+      "vae": ["112", 0]
+    },
+    "class_type": "VAEDecode"
+  },
+  "90": {
+    "inputs": {
+      "pixels": ["87", 0],
+      "vae": ["112", 0]
+    },
+    "class_type": "VAEEncode"
+  }
+}
