@@ -554,6 +554,13 @@ class PopupApp {
         sendBtn.title = 'Generate';
         sendBtn.addEventListener('click', () => this.handleSendToComfyUI(entry.id));
         actions.appendChild(sendBtn);
+      } else if (entry.imageStatus === 'done') {
+        const regenerateBtn = document.createElement('button');
+        regenerateBtn.className = 'btn-regenerate';
+        regenerateBtn.textContent = '↻';
+        regenerateBtn.title = 'Generate Again';
+        regenerateBtn.addEventListener('click', () => this.handleSendToComfyUI(entry.id));
+        actions.appendChild(regenerateBtn);
       }
 
       const deleteBtn = document.createElement('button');

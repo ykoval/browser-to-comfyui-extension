@@ -359,6 +359,16 @@ body {
   border-color: #ff4757 !important;
 }
 
+.btn-regenerate {
+  color: var(--neon-cyan);
+  border-color: var(--neon-cyan) !important;
+}
+
+.btn-regenerate:hover {
+  background: var(--neon-cyan);
+  color: var(--bg-dark);
+}
+
 .btn-delete:hover {
   background: #ff4757;
   color: var(--bg-dark);
