@@ -36,6 +36,7 @@ class PopupApp {
   private history!: PromptEntry[];
   private currentDomain: string = '';
   private currentTabId: number | null = null;
+  private queueTimer: number | null = null;
 
   constructor() {
     this.promptInput = document.getElementById('promptInput') as HTMLTextAreaElement;
@@ -88,6 +89,10 @@ class PopupApp {
     this.updateUI();
     this.bindEvents();
     this.syncWithComfyUIQueue();
+    this.queueTimer = window.setInterval(() => this.syncWithComfyUIQueue(), 4000);
+    window.addEventListener('unload', () => {
+      if (this.queueTimer !== null) window.clearInterval(this.queueTimer);
+    });
   }
 
   private async initCurrentTab() {

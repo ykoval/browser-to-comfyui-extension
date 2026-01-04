@@ -92,19 +92,19 @@ async function fetchComfyUIQueue(settings: ComfyUISettings): Promise<{ running: 
   try {
     const response = await fetch(url);
     if (!response.ok) return { running: [], pending: [] };
-    
+
     const data: ComfyUIQueueResponse = await response.json();
-    
+
     const running = (data.queue_running || []).map(item => ({
       promptId: item[1],
       number: item[0],
     }));
-    
+
     const pending = (data.queue_pending || []).map(item => ({
       promptId: item[1],
       number: item[0],
     }));
-    
+
     return { running, pending };
   } catch {
     return { running: [], pending: [] };
@@ -119,7 +119,7 @@ async function cancelPrompt(promptId: string, settings: ComfyUISettings): Promis
       body: JSON.stringify({ delete: [promptId] }),
     });
     if (response.ok) return true;
-    
+
     const interruptResponse = await fetch(`${settings.serverAddress}/interrupt`, {
       method: 'POST',
     });
@@ -207,36 +207,36 @@ async function sendToComfyUI(payload: ComfyUIPayload, settings: ComfyUISettings)
 async function pollForImage(promptId: string, settings: ComfyUISettings, maxAttempts = 180): Promise<string | null> {
   const historyUrl = `${settings.serverAddress}/history/${promptId}`;
   console.log('Polling for image:', historyUrl);
-  
+
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     await new Promise(resolve => setTimeout(resolve, 2000));
-    
+
     try {
       const response = await fetch(historyUrl);
       if (!response.ok) {
         console.log(`Poll attempt ${attempt}: HTTP ${response.status}`);
         continue;
       }
-      
+
       const historyData = await response.json();
       console.log(`Poll attempt ${attempt}:`, historyData);
-      
+
       const promptHistory = historyData[promptId];
       if (!promptHistory) {
         console.log('No history for promptId yet');
         continue;
       }
-      
+
       const hasOutputs = promptHistory.outputs && Object.keys(promptHistory.outputs).length > 0;
       console.log('Has outputs:', hasOutputs, 'Status:', promptHistory.status);
-      
+
       if (hasOutputs) {
         const upscaledNode = promptHistory.outputs['81'];
         const regularNode = promptHistory.outputs['79'];
         console.log('Node 81:', upscaledNode, 'Node 79:', regularNode);
-        
+
         const saveImageNode = upscaledNode?.images?.[0] ? upscaledNode : regularNode;
-        
+
         if (saveImageNode?.images?.[0]) {
           const img = saveImageNode.images[0];
           const imageUrl = `${settings.serverAddress}/view?filename=${encodeURIComponent(img.filename)}&subfolder=${encodeURIComponent(img.subfolder)}&type=${img.type}`;
@@ -261,14 +261,14 @@ type WorkflowTemplate = Record<string, WorkflowNode>;
 
 function buildComfyUIWorkflow(payload: ComfyUIPayload): object {
   const seed = payload.seed === -1 ? Math.floor(Math.random() * 1000000000000) : payload.seed;
-  
+
   const workflow: WorkflowTemplate = structuredClone(baseWorkflowTemplate) as WorkflowTemplate;
-  
+
   workflow["3"].inputs.seed = seed;
   workflow["3"].inputs.steps = payload.steps;
   workflow["3"].inputs.cfg = payload.cfg;
   workflow["105"].inputs.text = payload.negativePrompt || "dust, dots, stain";
-  workflow["110"].inputs.text = payload.prompt;
+  workflow["118"].inputs.text = payload.prompt;
   workflow["113"].inputs.ratio = payload.aspectRatio;
   workflow["113"].inputs.Megapixel = payload.megapixel;
 

@@ -2,7 +2,7 @@
   "3": {
     "inputs": {
       "seed": 0,
-      "steps": 25,
+      "steps": 40,
       "cfg": 4,
       "sampler_name": "er_sde",
       "scheduler": "beta",
@@ -16,7 +16,7 @@
   },
   "6": {
     "inputs": {
-      "text": ["109", 1],
+      "text": ["118", 1],
       "clip": ["103", 0]
     },
     "class_type": "CLIPTextEncode"
@@ -30,7 +30,7 @@
   },
   "66": {
     "inputs": {
-      "shift": 3,
+      "shift": 3.1,
       "model": ["104", 0]
     },
     "class_type": "ModelSamplingAuraFlow"
@@ -52,7 +52,7 @@
   },
   "104": {
     "inputs": {
-      "unet_name": "jibMixQwen_v50.safetensors",
+      "unet_name": "Qwen-Image-202512_fp8_e5m2.safetensors",
       "weight_dtype": "fp8_e5m2",
       "device": "cuda:1"
     },
@@ -65,20 +65,6 @@
     },
     "class_type": "CLIPTextEncode"
   },
-  "109": {
-    "inputs": {
-      "source": ["110", 0],
-      "split_by": "===",
-      "from_right": "true"
-    },
-    "class_type": "JWStringSplit"
-  },
-  "110": {
-    "inputs": {
-      "text": ""
-    },
-    "class_type": "JWStringMultiline"
-  },
   "112": {
     "inputs": {
       "vae_name": "qwen_image_vae.safetensors",
@@ -89,7 +75,7 @@
   "113": {
     "inputs": {
       "ratio": "16:9 ▭",
-      "Megapixel": 2.5,
+      "Megapixel": 2.3,
       "Precision": 0.2
     },
     "class_type": "Ratio to Size"
@@ -101,5 +87,25 @@
       "batch_size": 1
     },
     "class_type": "EmptyLatentImage"
+  },
+  "118": {
+    "inputs": {
+      "number_of_outputs": 2,
+      "text": "",
+      "delimiter": "custom",
+      "custom_delimiter": "===",
+      "clean_whitespace": true,
+      "ignore_empty_strings": true,
+      "start_from_index": 1
+    },
+    "class_type": "AGSoftTextSplit"
+  },
+  "119": {
+    "inputs": {
+      "preview": "",
+      "previewMode": null,
+      "source": ["118", 1]
+    },
+    "class_type": "PreviewAny"
   }
 }

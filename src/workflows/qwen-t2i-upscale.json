@@ -37,7 +37,7 @@
   "87": {
     "inputs": {
       "upscale_method": "lanczos",
-      "scale_by": 0.5,
+      "scale_by": 0.25,
       "image": ["86", 0]
     },
     "class_type": "ImageScaleBy"
