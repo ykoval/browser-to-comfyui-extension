@@ -6,6 +6,20 @@ import upscaleNodesTemplate from './workflows/qwen-t2i-upscale.json';
 
 const storage = chrome.storage;
 
+let historyLock: Promise<void> = Promise.resolve();
+
+async function withHistoryLock<T>(fn: () => Promise<T>): Promise<T> {
+  const currentLock = historyLock;
+  let resolve: () => void;
+  historyLock = new Promise(r => { resolve = r; });
+  await currentLock;
+  try {
+    return await fn();
+  } finally {
+    resolve!();
+  }
+}
+
 async function getSettings(): Promise<ComfyUISettings> {
   const result = await storage.sync.get(STORAGE_KEYS.SETTINGS);
   return { ...DEFAULT_SETTINGS, ...result[STORAGE_KEYS.SETTINGS] };
@@ -74,7 +88,17 @@ function extractDomain(url: string): string {
 async function isPromptDuplicate(text: string): Promise<boolean> {
   const history = await getHistory();
   const normalizedText = text.trim().toLowerCase();
-  return history.some(entry => entry.text.trim().toLowerCase() === normalizedText);
+  console.log(`[Utils] Checking "${text.substring(0, 30)}..." against ${history.length} history entries`);
+  const isDupe = history.some(entry => {
+    const entryNormalized = entry.text.trim().toLowerCase();
+    if (entryNormalized === normalizedText) {
+      console.log(`[Utils] Found duplicate match with entry: "${entry.text.substring(0, 30)}..."`);
+      return true;
+    }
+    return false;
+  });
+  console.log(`[Utils] Result: ${isDupe}`);
+  return isDupe;
 }
 
 interface ComfyUIQueueItem {
@@ -137,16 +161,18 @@ async function deletePromptEntry(id: string): Promise<void> {
 }
 
 async function addPromptEntry(text: string): Promise<PromptEntry> {
-  const entry: PromptEntry = {
-    id: crypto.randomUUID(),
-    text,
-    createdAt: Date.now(),
-    imageStatus: 'pending',
-  };
-  const history = await getHistory();
-  history.push(entry);
-  await saveHistory(history);
-  return entry;
+  return withHistoryLock(async () => {
+    const entry: PromptEntry = {
+      id: crypto.randomUUID(),
+      text,
+      createdAt: Date.now(),
+      imageStatus: 'pending',
+    };
+    const history = await getHistory();
+    history.push(entry);
+    await saveHistory(history);
+    return entry;
+  });
 }
 
 async function updatePromptEntry(id: string, updates: Partial<PromptEntry>): Promise<void> {

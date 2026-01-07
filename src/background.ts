@@ -58,7 +58,9 @@ chrome.contextMenus.onClicked.addListener(async (info: chrome.contextMenus.OnCli
 });
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+  console.log(`[Background] Received message:`, message.type);
   if (message.type === 'AUTO_DETECTED_PROMPT') {
+    console.log(`[Background] Processing prompt: "${message.text?.substring(0, 50)}..."`);
     handleAutoDetectedPrompt(message.text);
     sendResponse({ success: true });
   } else if (message.type === 'OPEN_POPUP') {
@@ -69,11 +71,18 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 });
 
 async function handleAutoDetectedPrompt(text: string) {
+  console.log(`[Background] Checking duplicate for: "${text.substring(0, 50)}..."`);
   const isDuplicate = await isPromptDuplicate(text);
-  if (isDuplicate) return;
+  console.log(`[Background] isDuplicate: ${isDuplicate}`);
+  if (isDuplicate) {
+    console.log(`[Background] Skipping duplicate`);
+    return;
+  }
 
   const settings = await getSettings();
+  console.log(`[Background] Adding to history...`);
   const entry = await addPromptEntry(text);
+  console.log(`[Background] Added entry:`, entry.id);
 
   if (settings.autoSend) {
     try {

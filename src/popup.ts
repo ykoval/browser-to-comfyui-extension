@@ -32,6 +32,7 @@ class PopupApp {
   private scanStatus: HTMLElement;
   private tabBtns: NodeListOf<HTMLButtonElement>;
   private tabContents: NodeListOf<HTMLElement>;
+  private buildTimeElement: HTMLElement;
   private settings!: ComfyUISettings;
   private history!: PromptEntry[];
   private currentDomain: string = '';
@@ -67,6 +68,7 @@ class PopupApp {
     this.scanStatus = document.getElementById('scanStatus') as HTMLElement;
     this.tabBtns = document.querySelectorAll('.tab-btn') as NodeListOf<HTMLButtonElement>;
     this.tabContents = document.querySelectorAll('.tab-content') as NodeListOf<HTMLElement>;
+    this.buildTimeElement = document.getElementById('buildTime') as HTMLElement;
 
     this.initAspectRatioOptions();
     this.init();
@@ -88,10 +90,20 @@ class PopupApp {
     await this.restoreActiveTab();
     this.updateUI();
     this.bindEvents();
+    this.setupStorageListener();
     this.syncWithComfyUIQueue();
     this.queueTimer = window.setInterval(() => this.syncWithComfyUIQueue(), 4000);
     window.addEventListener('unload', () => {
       if (this.queueTimer !== null) window.clearInterval(this.queueTimer);
+    });
+  }
+
+  private setupStorageListener() {
+    chrome.storage.local.onChanged.addListener((changes: { [key: string]: chrome.storage.StorageChange }) => {
+      if (changes.promptHistory) {
+        console.log('[Popup] History changed in storage, refreshing...');
+        this.refreshHistory();
+      }
     });
   }
 
@@ -187,16 +199,31 @@ class PopupApp {
     this.autoSendToggle.checked = this.settings.autoSend;
     this.serverAddressInput.value = this.settings.serverAddress;
     this.negativePromptInput.value = this.settings.negativePrompt;
-    this.seedInput.value = this.settings.seed.toString();
-    this.stepsInput.value = this.settings.steps.toString();
-    this.cfgInput.value = this.settings.cfg.toString();
+    this.seedInput.value = String(this.settings.seed);
+    this.stepsInput.value = String(this.settings.steps);
+    this.cfgInput.value = String(this.settings.cfg);
     this.enableSeparatorToggle.checked = this.settings.enableSeparator;
     this.aspectRatioSelect.value = this.settings.aspectRatio;
-    this.megapixelInput.value = this.settings.megapixel.toString();
+    this.megapixelInput.value = String(this.settings.megapixel);
     this.enableUpscaleToggle.checked = this.settings.enableUpscale;
     this.promptStartMarkerInput.value = this.settings.promptStartMarker;
     this.promptEndMarkerInput.value = this.settings.promptEndMarker;
+    this.updateBuildTime();
     this.renderHistory();
+  }
+
+  private updateBuildTime() {
+    const buildDate = new Date(__BUILD_TIME__);
+    const formatted = buildDate.toLocaleString('en-GB', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: false,
+    });
+    this.buildTimeElement.textContent = `Build: ${formatted}`;
   }
 
   private bindEvents() {
@@ -314,7 +341,7 @@ class PopupApp {
   }
 
   private extractPrompts(text: string): string[] {
-    const prompts: string[] = [];
+    const seen = new Map<string, string>();
     const { promptStartMarker, promptEndMarker } = this.settings;
     let searchStart = 0;
 
@@ -327,14 +354,15 @@ class PopupApp {
       if (endIndex === -1) break;
 
       const promptText = text.substring(contentStart, endIndex).trim();
-      if (promptText) {
-        prompts.push(promptText);
+      const normalizedPrompt = promptText.toLowerCase();
+      if (promptText && !seen.has(normalizedPrompt)) {
+        seen.set(normalizedPrompt, promptText);
       }
 
       searchStart = endIndex + promptEndMarker.length;
     }
 
-    return prompts;
+    return Array.from(seen.values());
   }
 
   private async handleClearHistory() {
@@ -594,7 +622,9 @@ class PopupApp {
   }
 
   private async refreshHistory() {
+    console.log('[Popup] Refreshing history...');
     this.history = await getHistory();
+    console.log(`[Popup] Loaded ${this.history.length} entries`);
     this.renderHistory();
   }
 }

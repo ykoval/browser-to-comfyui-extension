@@ -419,6 +419,18 @@ body {
   margin-right: 8px;
 }
 
+.build-info {
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border-color);
+  text-align: center;
+}
+
+.build-info small {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
 #saveSettingsBtn {
   width: 100%;
   padding: 12px;

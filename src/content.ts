@@ -8,7 +8,7 @@ interface AutoDetectSettings {
 class PromptAutoDetector {
   private observer: MutationObserver | null = null;
   private settings: AutoDetectSettings | null = null;
-  private detectedPrompts: Set<string> = new Set();
+  private detectedPrompts: Map<string, string> = new Map();
   private detectedCount: number = 0;
   private indicator: HTMLElement | null = null;
   private isActive: boolean = false;
@@ -277,11 +277,13 @@ class PromptAutoDetector {
       if (endIndex === -1) break;
 
       const promptText = pageText.substring(contentStart, endIndex).trim();
+      const normalizedPrompt = promptText.toLowerCase();
       
-      if (promptText && !this.detectedPrompts.has(promptText)) {
-        this.detectedPrompts.add(promptText);
+      if (promptText && !this.detectedPrompts.has(normalizedPrompt)) {
+        this.detectedPrompts.set(normalizedPrompt, promptText);
         this.detectedCount++;
         this.updateBadge(this.detectedCount);
+        console.log(`[Content] Detected #${this.detectedCount}: "${promptText.substring(0, 50)}..."`);
         this.sendPromptToBackground(promptText);
       }
 
@@ -290,9 +292,14 @@ class PromptAutoDetector {
   }
 
   private sendPromptToBackground(text: string) {
+    console.log(`[Content] Sending to background: "${text.substring(0, 50)}..."`);
     chrome.runtime.sendMessage({
       type: 'AUTO_DETECTED_PROMPT',
       text: text,
+    }).then(response => {
+      console.log(`[Content] Background response:`, response);
+    }).catch(err => {
+      console.error(`[Content] Failed to send:`, err);
     });
   }
 }
