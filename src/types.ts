@@ -23,6 +23,7 @@ interface PromptEntry {
   imageStatus: 'pending' | 'generating' | 'done' | 'error';
   imageUrl?: string;
   promptId?: string;
+  generationCount?: number;
 }
 
 interface ComfyUIPayload {

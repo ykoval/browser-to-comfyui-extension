@@ -169,8 +169,10 @@ async function addPromptEntry(text: string): Promise<PromptEntry> {
       imageStatus: 'pending',
     };
     const history = await getHistory();
+    console.log(`[Utils] addPromptEntry: history before=${history.length}`);
     history.push(entry);
     await saveHistory(history);
+    console.log(`[Utils] addPromptEntry: saved, new length=${history.length}`);
     return entry;
   });
 }

@@ -518,8 +518,10 @@ class PopupApp {
     const entry = this.history.find(e => e.id === entryId);
     if (!entry) return;
 
+    const newCount = (entry.generationCount || 0) + 1;
+
     try {
-      await updatePromptEntry(entryId, { imageStatus: 'generating' });
+      await updatePromptEntry(entryId, { imageStatus: 'generating', generationCount: newCount });
       await this.refreshHistory();
 
       const promptId = await sendToComfyUI(this.buildPayload(entry.text), this.settings);
@@ -580,21 +582,15 @@ class PopupApp {
         cancelBtn.title = 'Cancel';
         cancelBtn.addEventListener('click', () => this.handleCancelGeneration(entry));
         actions.appendChild(cancelBtn);
-      } else if (entry.imageStatus === 'pending' || entry.imageStatus === 'error') {
-        const sendBtn = document.createElement('button');
-        sendBtn.className = 'btn-send';
-        sendBtn.textContent = '▶';
-        sendBtn.title = 'Generate';
-        sendBtn.addEventListener('click', () => this.handleSendToComfyUI(entry.id));
-        actions.appendChild(sendBtn);
-      } else if (entry.imageStatus === 'done') {
-        const regenerateBtn = document.createElement('button');
-        regenerateBtn.className = 'btn-regenerate';
-        regenerateBtn.textContent = '↻';
-        regenerateBtn.title = 'Generate Again';
-        regenerateBtn.addEventListener('click', () => this.handleSendToComfyUI(entry.id));
-        actions.appendChild(regenerateBtn);
       }
+
+      const genCount = entry.generationCount || 0;
+      const regenerateBtn = document.createElement('button');
+      regenerateBtn.className = 'btn-regenerate';
+      regenerateBtn.innerHTML = genCount > 1 ? `↻<span class="gen-count">${genCount}</span>` : '↻';
+      regenerateBtn.title = genCount > 0 ? `Generate Again (${genCount} sent)` : 'Generate';
+      regenerateBtn.addEventListener('click', () => this.handleSendToComfyUI(entry.id));
+      actions.appendChild(regenerateBtn);
 
       const deleteBtn = document.createElement('button');
       deleteBtn.className = 'btn-delete';
@@ -624,7 +620,7 @@ class PopupApp {
   private async refreshHistory() {
     console.log('[Popup] Refreshing history...');
     this.history = await getHistory();
-    console.log(`[Popup] Loaded ${this.history.length} entries`);
+    console.log(`[Popup] Loaded ${this.history.length} entries:`, this.history.map(e => e.id.substring(0, 8)));
     this.renderHistory();
   }
 }

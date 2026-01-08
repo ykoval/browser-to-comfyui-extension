@@ -362,11 +362,29 @@ body {
 .btn-regenerate {
   color: var(--neon-cyan);
   border-color: var(--neon-cyan) !important;
+  position: relative;
 }
 
 .btn-regenerate:hover {
   background: var(--neon-cyan);
   color: var(--bg-dark);
+}
+
+.btn-regenerate .gen-count {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  background: var(--neon-pink);
+  color: white;
+  font-size: 9px;
+  font-weight: 700;
+  min-width: 14px;
+  height: 14px;
+  border-radius: 7px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 3px;
 }
 
 .btn-delete:hover {
