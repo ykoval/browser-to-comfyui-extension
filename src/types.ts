@@ -38,8 +38,31 @@ interface ComfyUIPayload {
 }
 
 interface ComfyUIResponse {
-  // TODO: Define based on actual ComfyUI response structure
-  // Example: { images: [{ url: string }] }
+  prompt_id: string;
+  number: number;
+  node_errors: Record<string, unknown>;
+}
+
+type MappingType = 'prompt' | 'negativePrompt' | 'seed' | 'steps' | 'cfg' | 'aspectRatio' | 'megapixel' | 'outputImage';
+
+interface WorkflowMapping {
+  type: MappingType;
+  nodeId: string;
+  inputKey: string;
+}
+
+interface ImportedWorkflow {
+  id: string;
+  name: string;
+  workflow: Record<string, WorkflowNode>;
+  mappings: WorkflowMapping[];
+  outputNodeId: string;
+  createdAt: number;
+}
+
+interface WorkflowNode {
+  inputs: Record<string, unknown>;
+  class_type: string;
 }
 
 const STORAGE_KEYS = {
@@ -47,6 +70,8 @@ const STORAGE_KEYS = {
   HISTORY: 'promptHistory',
   ACTIVE_TAB: 'activeTab',
   AUTO_DETECT_DOMAINS: 'autoDetectDomains',
+  WORKFLOWS: 'importedWorkflows',
+  ACTIVE_WORKFLOW: 'activeWorkflowId',
 } as const;
 
 const ASPECT_RATIOS = [
@@ -87,5 +112,5 @@ const DEFAULT_SETTINGS: ComfyUISettings = {
 
 const MAX_HISTORY_ENTRIES = 50;
 
-export type { ComfyUISettings, PromptEntry, ComfyUIPayload, ComfyUIResponse };
+export type { ComfyUISettings, PromptEntry, ComfyUIPayload, ComfyUIResponse, MappingType, WorkflowMapping, ImportedWorkflow, WorkflowNode };
 export { STORAGE_KEYS, DEFAULT_SETTINGS, MAX_HISTORY_ENTRIES, ASPECT_RATIOS };

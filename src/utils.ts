@@ -1,6 +1,8 @@
-import { ComfyUISettings, PromptEntry, STORAGE_KEYS, DEFAULT_SETTINGS, MAX_HISTORY_ENTRIES, ComfyUIPayload } from './types';
+import { ComfyUISettings, PromptEntry, STORAGE_KEYS, DEFAULT_SETTINGS, MAX_HISTORY_ENTRIES, ComfyUIPayload, WorkflowNode } from './types';
 import baseWorkflowTemplate from './workflows/qwen-t2i-base.json';
 import upscaleNodesTemplate from './workflows/qwen-t2i-upscale.json';
+import liteGraphWorkflowTemplate from './workflows/qwen-t2i-litegraph.json';
+import { getActiveWorkflow, applyMappingsToWorkflow } from './workflow-utils';
 
 /// <reference types="chrome" />
 
@@ -212,7 +214,30 @@ interface ComfyUIHistoryResponse {
 async function sendToComfyUI(payload: ComfyUIPayload, settings: ComfyUISettings): Promise<string> {
   const url = `${settings.serverAddress}${settings.apiPath}`;
   const promptText = preparePromptText(payload.prompt, settings.enableSeparator);
-  const body = buildComfyUIWorkflow({ ...payload, prompt: promptText });
+
+  const activeWorkflow = await getActiveWorkflow();
+  let body: object;
+
+  if (activeWorkflow) {
+    const appliedWorkflow = applyMappingsToWorkflow(
+      activeWorkflow.workflow,
+      activeWorkflow.mappings,
+      { ...payload, prompt: promptText }
+    );
+    // For imported workflows, use the template LiteGraph workflow
+    const seed = payload.seed === -1 ? Math.floor(Math.random() * 1000000000000) : payload.seed;
+    const liteGraphWorkflow = buildLiteGraphWorkflow({ ...payload, prompt: promptText }, seed);
+    body = {
+      prompt: appliedWorkflow,
+      extra_data: {
+        extra_pnginfo: {
+          workflow: liteGraphWorkflow
+        }
+      }
+    };
+  } else {
+    body = buildComfyUIWorkflow({ ...payload, prompt: promptText });
+  }
 
   const response = await fetch(url, {
     method: 'POST',
@@ -259,11 +284,28 @@ async function pollForImage(promptId: string, settings: ComfyUISettings, maxAtte
       console.log('Has outputs:', hasOutputs, 'Status:', promptHistory.status);
 
       if (hasOutputs) {
-        const upscaledNode = promptHistory.outputs['81'];
-        const regularNode = promptHistory.outputs['79'];
-        console.log('Node 81:', upscaledNode, 'Node 79:', regularNode);
+        const activeWorkflow = await getActiveWorkflow();
+        let saveImageNode = null;
 
-        const saveImageNode = upscaledNode?.images?.[0] ? upscaledNode : regularNode;
+        if (activeWorkflow?.outputNodeId) {
+          saveImageNode = promptHistory.outputs[activeWorkflow.outputNodeId];
+        }
+        
+        if (!saveImageNode?.images?.[0]) {
+          const upscaledNode = promptHistory.outputs['81'];
+          const regularNode = promptHistory.outputs['79'];
+          saveImageNode = upscaledNode?.images?.[0] ? upscaledNode : regularNode;
+        }
+
+        if (!saveImageNode?.images?.[0]) {
+          for (const nodeId of Object.keys(promptHistory.outputs)) {
+            const node = promptHistory.outputs[nodeId];
+            if (node?.images?.[0]) {
+              saveImageNode = node;
+              break;
+            }
+          }
+        }
 
         if (saveImageNode?.images?.[0]) {
           const img = saveImageNode.images[0];
@@ -280,12 +322,76 @@ async function pollForImage(promptId: string, settings: ComfyUISettings, maxAtte
   return null;
 }
 
-type WorkflowNode = {
-  inputs: Record<string, unknown>;
-  class_type: string;
-};
-
 type WorkflowTemplate = Record<string, WorkflowNode>;
+
+interface LiteGraphNode {
+  id: number;
+  type: string;
+  pos: number[];
+  size: number[];
+  flags: Record<string, unknown>;
+  order: number;
+  mode: number;
+  inputs?: Array<{ name: string; type: string; link: number | null; widget?: { name: string } }>;
+  outputs?: Array<{ name: string; type: string; links: number[] | null; slot_index?: number }>;
+  title?: string;
+  properties: Record<string, unknown>;
+  widgets_values?: unknown[];
+}
+
+interface LiteGraphWorkflow {
+  id?: string;
+  revision?: number;
+  last_node_id: number;
+  last_link_id: number;
+  nodes: LiteGraphNode[];
+  links: Array<[number, number, number, number, number, string]>;
+  groups: unknown[];
+  config: Record<string, unknown>;
+  extra: Record<string, unknown>;
+  version: number;
+}
+
+function buildLiteGraphWorkflow(payload: ComfyUIPayload, seed: number): LiteGraphWorkflow {
+  // Clone the template workflow
+  const lgWorkflow: LiteGraphWorkflow = structuredClone(liteGraphWorkflowTemplate) as LiteGraphWorkflow;
+
+  // Update dynamic values in the LiteGraph workflow nodes
+  for (const node of lgWorkflow.nodes) {
+    switch (node.id) {
+      case 3: // KSampler - main sampler
+        if (node.widgets_values) {
+          node.widgets_values[0] = seed;              // seed
+          node.widgets_values[2] = payload.steps;     // steps
+          node.widgets_values[3] = payload.cfg;       // cfg
+        }
+        break;
+      case 83: // KSampler - upscale sampler
+        if (node.widgets_values) {
+          node.widgets_values[0] = Math.floor(Math.random() * 1000000000000); // seed
+        }
+        break;
+      case 105: // CLIPTextEncode - negative prompt
+        if (node.widgets_values) {
+          node.widgets_values[0] = payload.negativePrompt || "dust, dots, stain";
+        }
+        break;
+      case 118: // AGSoftTextSplit - prompt input
+        if (node.widgets_values) {
+          node.widgets_values[1] = payload.prompt;    // text field
+        }
+        break;
+      case 113: // Ratio to Size
+        if (node.widgets_values) {
+          node.widgets_values[0] = payload.aspectRatio;  // ratio
+          node.widgets_values[1] = payload.megapixel;    // Megapixel
+        }
+        break;
+    }
+  }
+
+  return lgWorkflow;
+}
 
 function buildComfyUIWorkflow(payload: ComfyUIPayload): object {
   const seed = payload.seed === -1 ? Math.floor(Math.random() * 1000000000000) : payload.seed;
@@ -306,7 +412,17 @@ function buildComfyUIWorkflow(payload: ComfyUIPayload): object {
     Object.assign(workflow, upscaleNodes);
   }
 
-  return { prompt: workflow };
+  // Build LiteGraph workflow for PNG embedding using the exported template
+  const liteGraphWorkflow = buildLiteGraphWorkflow(payload, seed);
+
+  return {
+    prompt: workflow,
+    extra_data: {
+      extra_pnginfo: {
+        workflow: liteGraphWorkflow
+      }
+    }
+  };
 }
 
 function getRelativeTime(timestamp: number): string {

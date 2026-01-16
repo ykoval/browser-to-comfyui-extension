@@ -1,7 +1,8 @@
 /// <reference types="chrome" />
 
 import { getSettings, saveSettings, getHistory, clearHistory, getActiveTab, setActiveTab, fetchComfyUIQueue, cancelPrompt, deletePromptEntry, addPromptEntry, sendToComfyUI, pollForImage, updatePromptEntry, getRelativeTime, isAutoDetectEnabled, toggleAutoDetect, extractDomain } from './utils';
-import { PromptEntry, ComfyUISettings, ASPECT_RATIOS } from './types';
+import { PromptEntry, ComfyUISettings, ASPECT_RATIOS, ImportedWorkflow, MappingType } from './types';
+import { getWorkflows, addWorkflow, deleteWorkflow, updateWorkflow, getActiveWorkflowId, setActiveWorkflowId, detectWorkflowMappings, findOutputNodeId, parseWorkflowFile, DetectedMapping } from './workflow-utils';
 
 class PopupApp {
   private promptInput: HTMLTextAreaElement;
@@ -33,8 +34,19 @@ class PopupApp {
   private tabBtns: NodeListOf<HTMLButtonElement>;
   private tabContents: NodeListOf<HTMLElement>;
   private buildTimeElement: HTMLElement;
+  private workflowSelect: HTMLSelectElement;
+  private importWorkflowBtn: HTMLButtonElement;
+  private editMappingsBtn: HTMLButtonElement;
+  private deleteWorkflowBtn: HTMLButtonElement;
+  private workflowFileInput: HTMLInputElement;
+  private mappingsPanel: HTMLElement;
+  private mappingsList: HTMLElement;
+  private closeMappingsBtn: HTMLButtonElement;
+  private saveMappingsBtn: HTMLButtonElement;
   private settings!: ComfyUISettings;
   private history!: PromptEntry[];
+  private workflows: ImportedWorkflow[] = [];
+  private currentMappings: DetectedMapping[] = [];
   private currentDomain: string = '';
   private currentTabId: number | null = null;
   private queueTimer: number | null = null;
@@ -69,6 +81,15 @@ class PopupApp {
     this.tabBtns = document.querySelectorAll('.tab-btn') as NodeListOf<HTMLButtonElement>;
     this.tabContents = document.querySelectorAll('.tab-content') as NodeListOf<HTMLElement>;
     this.buildTimeElement = document.getElementById('buildTime') as HTMLElement;
+    this.workflowSelect = document.getElementById('workflowSelect') as HTMLSelectElement;
+    this.importWorkflowBtn = document.getElementById('importWorkflowBtn') as HTMLButtonElement;
+    this.editMappingsBtn = document.getElementById('editMappingsBtn') as HTMLButtonElement;
+    this.deleteWorkflowBtn = document.getElementById('deleteWorkflowBtn') as HTMLButtonElement;
+    this.workflowFileInput = document.getElementById('workflowFileInput') as HTMLInputElement;
+    this.mappingsPanel = document.getElementById('mappingsPanel') as HTMLElement;
+    this.mappingsList = document.getElementById('mappingsList') as HTMLElement;
+    this.closeMappingsBtn = document.getElementById('closeMappingsBtn') as HTMLButtonElement;
+    this.saveMappingsBtn = document.getElementById('saveMappingsBtn') as HTMLButtonElement;
 
     this.initAspectRatioOptions();
     this.init();
@@ -86,8 +107,10 @@ class PopupApp {
   private async init() {
     this.settings = await getSettings();
     this.history = await getHistory();
+    this.workflows = await getWorkflows();
     await this.initCurrentTab();
     await this.restoreActiveTab();
+    await this.initWorkflowSelect();
     this.updateUI();
     this.bindEvents();
     this.setupStorageListener();
@@ -96,6 +119,20 @@ class PopupApp {
     window.addEventListener('unload', () => {
       if (this.queueTimer !== null) window.clearInterval(this.queueTimer);
     });
+  }
+
+  private async initWorkflowSelect() {
+    this.workflowSelect.innerHTML = '<option value="">Built-in (Qwen T2I)</option>';
+    this.workflows.forEach(wf => {
+      const option = document.createElement('option');
+      option.value = wf.id;
+      option.textContent = wf.name;
+      this.workflowSelect.appendChild(option);
+    });
+    const activeId = await getActiveWorkflowId();
+    if (activeId) {
+      this.workflowSelect.value = activeId;
+    }
   }
 
   private setupStorageListener() {
@@ -240,6 +277,13 @@ class PopupApp {
     this.scanPageBtn.addEventListener('click', this.handleScanPage.bind(this));
     this.togglePasteBtn.addEventListener('click', this.handleTogglePaste.bind(this));
     this.scanPasteBtn.addEventListener('click', this.handleScanPaste.bind(this));
+    this.workflowSelect.addEventListener('change', this.handleWorkflowChange.bind(this));
+    this.importWorkflowBtn.addEventListener('click', () => this.workflowFileInput.click());
+    this.workflowFileInput.addEventListener('change', this.handleWorkflowImport.bind(this));
+    this.editMappingsBtn.addEventListener('click', this.handleEditMappings.bind(this));
+    this.deleteWorkflowBtn.addEventListener('click', this.handleDeleteWorkflow.bind(this));
+    this.closeMappingsBtn.addEventListener('click', () => this.mappingsPanel.classList.add('hidden'));
+    this.saveMappingsBtn.addEventListener('click', this.handleSaveMappings.bind(this));
   }
 
   private handleTogglePaste() {
@@ -622,6 +666,159 @@ class PopupApp {
     this.history = await getHistory();
     console.log(`[Popup] Loaded ${this.history.length} entries:`, this.history.map(e => e.id.substring(0, 8)));
     this.renderHistory();
+  }
+
+  private async handleWorkflowChange() {
+    const selectedId = this.workflowSelect.value || null;
+    await setActiveWorkflowId(selectedId);
+    this.settingsStatus.textContent = selectedId ? 'Workflow changed' : 'Using built-in workflow';
+    setTimeout(() => { this.settingsStatus.textContent = ''; }, 2000);
+  }
+
+  private async handleWorkflowImport(event: Event) {
+    const input = event.target as HTMLInputElement;
+    const file = input.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = async (e) => {
+      const content = e.target?.result as string;
+      const workflowData = parseWorkflowFile(content);
+      
+      if (!workflowData) {
+        this.settingsStatus.textContent = 'Invalid workflow file';
+        setTimeout(() => { this.settingsStatus.textContent = ''; }, 3000);
+        return;
+      }
+
+      const detectedMappings = detectWorkflowMappings(workflowData);
+      const outputNodeId = findOutputNodeId(workflowData) || '';
+      const workflowName = file.name.replace('.json', '');
+
+      const newWorkflow: ImportedWorkflow = {
+        id: crypto.randomUUID(),
+        name: workflowName,
+        workflow: workflowData,
+        mappings: detectedMappings.map(m => ({ type: m.type, nodeId: m.nodeId, inputKey: m.inputKey })),
+        outputNodeId,
+        createdAt: Date.now(),
+      };
+
+      await addWorkflow(newWorkflow);
+      this.workflows = await getWorkflows();
+      await this.initWorkflowSelect();
+      this.workflowSelect.value = newWorkflow.id;
+      await setActiveWorkflowId(newWorkflow.id);
+
+      this.currentMappings = detectedMappings;
+      this.renderMappingsPanel(newWorkflow, detectedMappings);
+      this.mappingsPanel.classList.remove('hidden');
+
+      this.settingsStatus.textContent = `Imported: ${workflowName}`;
+      setTimeout(() => { this.settingsStatus.textContent = ''; }, 3000);
+    };
+    reader.readAsText(file);
+    input.value = '';
+  }
+
+  private handleEditMappings() {
+    const selectedId = this.workflowSelect.value;
+    if (!selectedId) {
+      this.settingsStatus.textContent = 'Select an imported workflow first';
+      setTimeout(() => { this.settingsStatus.textContent = ''; }, 2000);
+      return;
+    }
+
+    const workflow = this.workflows.find(w => w.id === selectedId);
+    if (!workflow) return;
+
+    const detectedMappings = detectWorkflowMappings(workflow.workflow);
+    this.currentMappings = detectedMappings;
+    this.renderMappingsPanel(workflow, detectedMappings);
+    this.mappingsPanel.classList.remove('hidden');
+  }
+
+  private async handleDeleteWorkflow() {
+    const selectedId = this.workflowSelect.value;
+    if (!selectedId) {
+      this.settingsStatus.textContent = 'Select a workflow to delete';
+      setTimeout(() => { this.settingsStatus.textContent = ''; }, 2000);
+      return;
+    }
+
+    const workflow = this.workflows.find(w => w.id === selectedId);
+    if (!workflow) return;
+
+    if (!confirm(`Delete workflow "${workflow.name}"?`)) return;
+
+    await deleteWorkflow(selectedId);
+    this.workflows = await getWorkflows();
+    await this.initWorkflowSelect();
+    this.mappingsPanel.classList.add('hidden');
+    this.settingsStatus.textContent = 'Workflow deleted';
+    setTimeout(() => { this.settingsStatus.textContent = ''; }, 2000);
+  }
+
+  private renderMappingsPanel(workflow: ImportedWorkflow, detectedMappings: DetectedMapping[]) {
+    this.mappingsList.innerHTML = '';
+    const nodeOptions = Object.entries(workflow.workflow).map(([id, node]) => 
+      `<option value="${id}">${id}: ${node.class_type}</option>`
+    ).join('');
+
+    const mappingTypes: MappingType[] = ['prompt', 'negativePrompt', 'seed', 'steps', 'cfg', 'aspectRatio', 'megapixel', 'outputImage'];
+    
+    mappingTypes.forEach(type => {
+      const detected = detectedMappings.find(m => m.type === type);
+      const saved = workflow.mappings.find(m => m.type === type);
+      const mapping = saved || detected;
+
+      const row = document.createElement('div');
+      row.className = 'mapping-row';
+      row.innerHTML = `
+        <label>${type}</label>
+        <select data-type="${type}" data-field="nodeId">
+          <option value="">-- None --</option>
+          ${nodeOptions}
+        </select>
+        <input type="text" data-type="${type}" data-field="inputKey" placeholder="input key" value="${mapping?.inputKey || ''}">
+        ${detected ? `<span class="confidence-${detected.confidence}" title="${detected.nodeType}">●</span>` : ''}
+      `;
+      
+      const nodeSelect = row.querySelector(`select[data-type="${type}"]`) as HTMLSelectElement;
+      if (mapping?.nodeId) {
+        nodeSelect.value = mapping.nodeId;
+      }
+
+      this.mappingsList.appendChild(row);
+    });
+  }
+
+  private async handleSaveMappings() {
+    const selectedId = this.workflowSelect.value;
+    if (!selectedId) return;
+
+    const mappings: { type: MappingType; nodeId: string; inputKey: string }[] = [];
+    const rows = this.mappingsList.querySelectorAll('.mapping-row');
+    
+    rows.forEach(row => {
+      const nodeSelect = row.querySelector('select[data-field="nodeId"]') as HTMLSelectElement;
+      const inputKeyField = row.querySelector('input[data-field="inputKey"]') as HTMLInputElement;
+      const type = nodeSelect.dataset.type as MappingType;
+      
+      if (nodeSelect.value && inputKeyField.value) {
+        mappings.push({
+          type,
+          nodeId: nodeSelect.value,
+          inputKey: inputKeyField.value,
+        });
+      }
+    });
+
+    await updateWorkflow(selectedId, { mappings });
+    this.workflows = await getWorkflows();
+    this.mappingsPanel.classList.add('hidden');
+    this.settingsStatus.textContent = 'Mappings saved';
+    setTimeout(() => { this.settingsStatus.textContent = ''; }, 2000);
   }
 }
 

@@ -83,6 +83,27 @@
             Add === separator (for Title/Keywords parsing)
           </label>
         </div>
+        <div class="form-group-header">Workflow Manager</div>
+        <div class="form-group">
+          <label for="workflowSelect">Active Workflow:</label>
+          <div class="workflow-select-row">
+            <select id="workflowSelect">
+              <option value="">Built-in (Qwen T2I)</option>
+            </select>
+            <button id="importWorkflowBtn" class="btn-icon" title="Import Workflow">+</button>
+            <button id="editMappingsBtn" class="btn-icon" title="Edit Mappings">⚙</button>
+            <button id="deleteWorkflowBtn" class="btn-icon btn-danger" title="Delete Workflow">🗑</button>
+          </div>
+          <input type="file" id="workflowFileInput" accept=".json" style="display: none;">
+        </div>
+        <div id="mappingsPanel" class="mappings-panel hidden">
+          <div class="mappings-header">
+            <span>Parameter Mappings</span>
+            <button id="closeMappingsBtn" class="btn-icon">✕</button>
+          </div>
+          <div id="mappingsList" class="mappings-list"></div>
+          <button id="saveMappingsBtn" class="btn-small">Save Mappings</button>
+        </div>
         <div class="form-group-header">Automatic Prompt Detection</div>
         <div class="form-group">
           <label for="promptStartMarker">Prompt Start Marker:</label>

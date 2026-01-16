@@ -12,35 +12,50 @@
       "negative": ["105", 0],
       "latent_image": ["114", 0]
     },
-    "class_type": "KSampler"
+    "class_type": "KSampler",
+    "_meta": {
+      "title": "KSampler"
+    }
   },
   "6": {
     "inputs": {
       "text": ["118", 1],
       "clip": ["103", 0]
     },
-    "class_type": "CLIPTextEncode"
+    "class_type": "CLIPTextEncode",
+    "_meta": {
+      "title": "CLIP Text Encode (Positive Prompt)"
+    }
   },
   "8": {
     "inputs": {
       "samples": ["3", 0],
       "vae": ["112", 0]
     },
-    "class_type": "VAEDecode"
+    "class_type": "VAEDecode",
+    "_meta": {
+      "title": "VAE Decode"
+    }
   },
   "66": {
     "inputs": {
       "shift": 3.1,
       "model": ["104", 0]
     },
-    "class_type": "ModelSamplingAuraFlow"
+    "class_type": "ModelSamplingAuraFlow",
+    "_meta": {
+      "title": "ModelSamplingAuraFlow"
+    }
   },
   "79": {
     "inputs": {
       "filename_prefix": "Qwen image/QwenImageT2I",
       "images": ["8", 0]
     },
-    "class_type": "SaveImage"
+    "class_type": "SaveImage",
+    "_meta": {
+      "title": "Save Image"
+    }
   },
   "103": {
     "inputs": {
@@ -48,7 +63,10 @@
       "type": "qwen_image",
       "device": "cuda:0"
     },
-    "class_type": "CLIPLoaderMultiGPU"
+    "class_type": "CLIPLoaderMultiGPU",
+    "_meta": {
+      "title": "CLIPLoaderMultiGPU"
+    }
   },
   "104": {
     "inputs": {
@@ -56,21 +74,30 @@
       "weight_dtype": "fp8_e5m2",
       "device": "cuda:1"
     },
-    "class_type": "UNETLoaderMultiGPU"
+    "class_type": "UNETLoaderMultiGPU",
+    "_meta": {
+      "title": "UNETLoaderMultiGPU"
+    }
   },
   "105": {
     "inputs": {
       "text": "dust, dots, stain",
       "clip": ["103", 0]
     },
-    "class_type": "CLIPTextEncode"
+    "class_type": "CLIPTextEncode",
+    "_meta": {
+      "title": "CLIP Text Encode (Negative Prompt)"
+    }
   },
   "112": {
     "inputs": {
       "vae_name": "qwen_image_vae.safetensors",
       "device": "cuda:1"
     },
-    "class_type": "VAELoaderMultiGPU"
+    "class_type": "VAELoaderMultiGPU",
+    "_meta": {
+      "title": "VAELoaderMultiGPU"
+    }
   },
   "113": {
     "inputs": {
@@ -78,7 +105,10 @@
       "Megapixel": 2.3,
       "Precision": 0.2
     },
-    "class_type": "Ratio to Size"
+    "class_type": "Ratio to Size",
+    "_meta": {
+      "title": "Ratio to Size"
+    }
   },
   "114": {
     "inputs": {
@@ -86,7 +116,10 @@
       "height": ["113", 1],
       "batch_size": 1
     },
-    "class_type": "EmptyLatentImage"
+    "class_type": "EmptyLatentImage",
+    "_meta": {
+      "title": "Empty Latent Image"
+    }
   },
   "118": {
     "inputs": {
@@ -98,7 +131,10 @@
       "ignore_empty_strings": true,
       "start_from_index": 1
     },
-    "class_type": "AGSoftTextSplit"
+    "class_type": "AGSoftTextSplit",
+    "_meta": {
+      "title": "AGSoftTextSplit"
+    }
   },
   "119": {
     "inputs": {
@@ -106,6 +142,9 @@
       "previewMode": null,
       "source": ["118", 1]
     },
-    "class_type": "PreviewAny"
+    "class_type": "PreviewAny",
+    "_meta": {
+      "title": "Preview Any"
+    }
   }
 }

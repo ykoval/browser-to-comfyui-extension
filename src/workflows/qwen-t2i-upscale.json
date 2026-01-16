@@ -4,7 +4,10 @@
       "filename_prefix": "Qwen image/QwenImageT2I_UP",
       "images": ["88", 0]
     },
-    "class_type": "SaveImage"
+    "class_type": "SaveImage",
+    "_meta": {
+      "title": "Save Image (Upscaled)"
+    }
   },
   "83": {
     "inputs": {
@@ -19,20 +22,29 @@
       "negative": ["105", 0],
       "latent_image": ["90", 0]
     },
-    "class_type": "KSampler"
+    "class_type": "KSampler",
+    "_meta": {
+      "title": "KSampler (Upscale)"
+    }
   },
   "85": {
     "inputs": {
       "model_name": "4x_NMKD-Siax_200k.pth"
     },
-    "class_type": "UpscaleModelLoader"
+    "class_type": "UpscaleModelLoader",
+    "_meta": {
+      "title": "Load Upscale Model"
+    }
   },
   "86": {
     "inputs": {
       "upscale_model": ["85", 0],
       "image": ["8", 0]
     },
-    "class_type": "ImageUpscaleWithModel"
+    "class_type": "ImageUpscaleWithModel",
+    "_meta": {
+      "title": "Upscale Image (Using Model)"
+    }
   },
   "87": {
     "inputs": {
@@ -40,20 +52,29 @@
       "scale_by": 0.25,
       "image": ["86", 0]
     },
-    "class_type": "ImageScaleBy"
+    "class_type": "ImageScaleBy",
+    "_meta": {
+      "title": "Upscale Image By"
+    }
   },
   "88": {
     "inputs": {
       "samples": ["83", 0],
       "vae": ["112", 0]
     },
-    "class_type": "VAEDecode"
+    "class_type": "VAEDecode",
+    "_meta": {
+      "title": "VAE Decode (Upscale)"
+    }
   },
   "90": {
     "inputs": {
       "pixels": ["87", 0],
       "vae": ["112", 0]
     },
-    "class_type": "VAEEncode"
+    "class_type": "VAEEncode",
+    "_meta": {
+      "title": "VAE Encode"
+    }
   }
 }
