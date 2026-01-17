@@ -126,7 +126,7 @@ class PromptAutoDetector {
       #comfyui-auto-detect-indicator.pulse .comfyui-indicator-badge {
         animation: comfyui-pulse 0.6s ease-out;
       }
-      #comfyui-auto-detect-indicator.scanning {
+      #comfyui-auto-detect-indicator.scanning .comfyui-indicator-icon {
         animation: comfyui-spin 1s linear infinite;
       }
       @keyframes comfyui-pulse {

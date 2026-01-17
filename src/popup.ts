@@ -1,6 +1,6 @@
 /// <reference types="chrome" />
 
-import { getSettings, saveSettings, getHistory, clearHistory, getActiveTab, setActiveTab, fetchComfyUIQueue, cancelPrompt, deletePromptEntry, addPromptEntry, sendToComfyUI, pollForImage, updatePromptEntry, getRelativeTime, isAutoDetectEnabled, toggleAutoDetect, extractDomain } from './utils';
+import { getSettings, saveSettings, getHistory, clearHistory, getActiveTab, setActiveTab, fetchComfyUIQueue, cancelPrompt, deletePromptEntry, addPromptEntry, sendToComfyUI, pollForImage, updatePromptEntry, getRelativeTime, isAutoDetectEnabled, toggleAutoDetect, extractDomain, parsePromptMetadata } from './utils';
 import { PromptEntry, ComfyUISettings, ASPECT_RATIOS, ImportedWorkflow, MappingType } from './types';
 import { getWorkflows, addWorkflow, deleteWorkflow, updateWorkflow, getActiveWorkflowId, setActiveWorkflowId, detectWorkflowMappings, findOutputNodeId, parseWorkflowFile, DetectedMapping } from './workflow-utils';
 
@@ -269,6 +269,7 @@ class PopupApp {
     this.saveSettingsBtn.addEventListener('click', this.handleSaveSettings.bind(this));
     this.tabBtns.forEach(btn => btn.addEventListener('click', this.handleTabClick.bind(this)));
     this.clearHistoryBtn.addEventListener('click', this.handleClearHistory.bind(this));
+    this.promptInput.addEventListener('input', this.handlePromptInputChange.bind(this));
     this.aspectRatioSelect.addEventListener('change', this.handlePromptControlChange.bind(this));
     this.megapixelInput.addEventListener('change', this.handlePromptControlChange.bind(this));
     this.stepsInput.addEventListener('change', this.handlePromptControlChange.bind(this));
@@ -417,6 +418,14 @@ class PopupApp {
     }
   }
 
+  private handlePromptInputChange() {
+    // Parse metadata from prompt to auto-detect aspect ratio
+    const metadata = parsePromptMetadata(this.promptInput.value);
+    if (metadata.aspectRatio && this.aspectRatioSelect.value !== metadata.aspectRatio) {
+      this.aspectRatioSelect.value = metadata.aspectRatio;
+    }
+  }
+
   private async handlePromptControlChange() {
     this.settings.aspectRatio = this.aspectRatioSelect.value;
     this.settings.megapixel = parseFloat(this.megapixelInput.value) || 2.5;
@@ -509,13 +518,24 @@ class PopupApp {
   }
 
   private buildPayload(promptText: string) {
+    // Parse metadata from prompt (e.g., "Aspect Ratio: 4:3")
+    const metadata = parsePromptMetadata(promptText);
+
+    // Use parsed aspect ratio if present, otherwise use settings
+    const aspectRatio = metadata.aspectRatio || this.settings.aspectRatio;
+
+    // Update UI to reflect the parsed aspect ratio
+    if (metadata.aspectRatio && this.aspectRatioSelect.value !== metadata.aspectRatio) {
+      this.aspectRatioSelect.value = metadata.aspectRatio;
+    }
+
     return {
-      prompt: promptText,
+      prompt: metadata.cleanPrompt,
       negativePrompt: this.settings.negativePrompt,
       seed: this.settings.seed,
       steps: this.settings.steps,
       cfg: this.settings.cfg,
-      aspectRatio: this.settings.aspectRatio,
+      aspectRatio: aspectRatio,
       megapixel: this.settings.megapixel,
       enableUpscale: this.settings.enableUpscale,
     };

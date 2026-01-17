@@ -437,6 +437,50 @@ function getRelativeTime(timestamp: number): string {
   return `${days} day${days > 1 ? 's' : ''} ago`;
 }
 
+interface PromptMetadata {
+  aspectRatio?: string;
+  cleanPrompt: string;
+}
+
+function parsePromptMetadata(promptText: string): PromptMetadata {
+  const result: PromptMetadata = { cleanPrompt: promptText };
+
+  // Match "Aspect Ratio: X:Y" pattern (case insensitive)
+  const aspectRatioMatch = promptText.match(/^Aspect\s*Ratio:\s*(\d+:\d+)\s*$/im);
+
+  if (aspectRatioMatch) {
+    const ratio = aspectRatioMatch[1];
+    // Map common ratios to their display format with orientation symbols
+    const ratioMappings: Record<string, string> = {
+      '1:1': '1:1 ◻',
+      '5:4': '5:4 ▭',
+      '4:3': '4:3 ▭',
+      '3:2': '3:2 ▭',
+      '16:9': '16:9 ▭',
+      '2:1': '2:1 ▭',
+      '21:9': '21:9 ▭',
+      '32:9': '32:9 ▭',
+      '4:5': '4:5 ▯',
+      '3:4': '3:4 ▯',
+      '2:3': '2:3 ▯',
+      '9:16': '9:16 ▯',
+      '1:2': '1:2 ▯',
+      '9:21': '9:21 ▯',
+      '9:32': '9:32 ▯',
+    };
+
+    result.aspectRatio = ratioMappings[ratio] || ratio;
+
+    // Remove the aspect ratio line from prompt
+    result.cleanPrompt = promptText
+      .replace(/^Aspect\s*Ratio:\s*\d+:\d+\s*$/im, '')
+      .replace(/\n\n+/g, '\n\n')
+      .trim();
+  }
+
+  return result;
+}
+
 export {
   getSettings,
   saveSettings,
@@ -459,4 +503,7 @@ export {
   sendToComfyUI,
   pollForImage,
   getRelativeTime,
+  parsePromptMetadata,
 };
+
+export type { PromptMetadata };
