@@ -1,0 +1,200 @@
+================================================================================
+AI ASSISTANT INSTRUCTIONS FOR STOCK IMAGE PROMPT GENERATION
+================================================================================
+
+Copy and paste this entire message at the start of your chat session with any
+AI assistant (Claude, ChatGPT, Gemini, etc.) to set up prompt generation rules.
+
+--------------------------------------------------------------------------------
+START OF INSTRUCTIONS (COPY FROM HERE)
+--------------------------------------------------------------------------------
+
+I need your help creating prompts for AI image generation that will be submitted
+to Adobe Stock. Please follow these formatting rules for all prompts you create:
+
+## PROMPT FORMAT
+
+Every prompt must be wrapped in markers and include metadata:
+
+```
+[PROMPT START]
+Title: <40-70 character descriptive title>
+Keywords: <comma-separated single words, up to 49>
+Aspect Ratio: <ratio like 16:9, 4:5, 1:1, etc.>
+===
+<detailed generation prompt>
+[PROMPT END]
+```
+
+## METADATA RULES
+
+### Title (Required)
+- 40-70 characters
+- Descriptive and searchable
+- Capitalize main words
+- No special characters
+- Focus on main subject and setting
+
+### Keywords (Required)
+- Comma-separated list
+- Single words only (no phrases)
+- Lowercase
+- Most relevant keywords first
+- Include variations (sunset, sunsets)
+- 15-49 keywords recommended
+
+### Aspect Ratio (Required)
+Choose based on content:
+- Landscapes, scenery: 16:9, 3:2, or 2:1
+- Portraits, people: 4:5, 2:3, or 3:4
+- Products, objects: 1:1 or 4:3
+- Mobile/social: 9:16 or 4:5
+- Presentations: 16:9
+
+## PROMPT CONTENT RULES
+
+The generation prompt (after ===) should include:
+1. Main subject description
+2. Setting/environment
+3. Style and mood
+4. Lighting conditions
+5. Composition details
+6. Technical quality terms (8k, sharp focus, etc.)
+
+## EXAMPLE
+
+Here's a correctly formatted example:
+
+```
+[PROMPT START]
+Title: Serene Mountain Lake Reflection at Golden Hour
+Keywords: mountain, lake, sunset, reflection, nature, landscape, peaceful, water, scenic, golden hour, tranquil, wilderness, alpine, peaks, serene
+Aspect Ratio: 16:9
+===
+A breathtaking panoramic view of a pristine alpine lake at golden hour,
+perfectly still water creating mirror-like reflections of snow-capped
+mountain peaks, warm orange and pink sunset colors painting the sky,
+scattered clouds catching the last light, pine trees framing the scene,
+professional landscape photography, exceptional clarity, high dynamic
+range, 8k resolution
+[PROMPT END]
+```
+
+## WHAT TO AVOID
+
+- Don't include text/watermarks in images
+- Don't reference copyrighted characters or brands
+- Don't create controversial or sensitive content
+- Don't use vague descriptions
+- Don't forget the markers and metadata
+
+## STOCK IMAGE BEST PRACTICES
+
+When helping me brainstorm:
+- Consider current market trends
+- Think about commercial use cases
+- Suggest seasonal/timely content
+- Recommend versatile concepts
+- Consider what buyers search for
+
+I may ask you to:
+1. Generate prompts for specific themes
+2. Research trending stock photo topics
+3. Suggest variations of successful concepts
+4. Recommend aspect ratios for content
+5. Optimize keywords for searchability
+
+Please confirm you understand these rules and are ready to help create prompts.
+
+--------------------------------------------------------------------------------
+END OF INSTRUCTIONS (COPY TO HERE)
+--------------------------------------------------------------------------------
+
+================================================================================
+QUICK REFERENCE CARD
+================================================================================
+
+MARKERS:
+  [PROMPT START] ... [PROMPT END]
+
+METADATA FORMAT:
+  Title: 40-70 chars, capitalized, descriptive
+  Keywords: word1, word2, word3 (lowercase, comma-separated)
+  Aspect Ratio: 16:9 | 4:5 | 1:1 | 3:2 | 2:3 | 9:16
+
+SEPARATOR:
+  ===
+
+ASPECT RATIO GUIDE:
+  Landscape scenes → 16:9, 3:2, 2:1
+  Portrait/people → 4:5, 2:3, 3:4
+  Square/product  → 1:1, 4:3
+  Mobile/stories  → 9:16, 4:5
+
+PROMPT STRUCTURE:
+  [Subject], [Setting], [Style], [Lighting], [Technical Quality]
+
+================================================================================
+EXAMPLE PROMPTS FOR DIFFERENT CATEGORIES
+================================================================================
+
+NATURE/LANDSCAPE:
+```
+[PROMPT START]
+Title: Misty Forest Path Through Ancient Redwood Trees
+Keywords: forest, path, trees, nature, misty, fog, redwood, woodland, trail, peaceful, morning, atmosphere, wilderness, green, tranquil
+Aspect Ratio: 2:3
+===
+A winding forest path disappearing into morning mist between towering
+ancient redwood trees, soft diffused sunlight filtering through the
+canopy, ferns and moss covering the forest floor, ethereal atmosphere,
+nature photography, sharp foreground with dreamy background, 8k detail
+[PROMPT END]
+```
+
+BUSINESS/CORPORATE:
+```
+[PROMPT START]
+Title: Young Entrepreneur Working on Laptop in Coffee Shop
+Keywords: entrepreneur, laptop, coffee, work, remote, freelance, business, cafe, professional, young, digital, lifestyle, modern, productive, casual
+Aspect Ratio: 3:2
+===
+A focused young professional working on a sleek laptop at a minimalist
+coffee shop window seat, natural daylight illuminating their face,
+steaming coffee cup nearby, urban street visible through window,
+authentic candid moment, lifestyle photography, shallow depth of field,
+warm inviting tones
+[PROMPT END]
+```
+
+FOOD/CULINARY:
+```
+[PROMPT START]
+Title: Artisan Sourdough Bread Fresh From Oven
+Keywords: bread, sourdough, artisan, baking, fresh, homemade, crust, bakery, food, rustic, organic, golden, loaf, traditional, delicious
+Aspect Ratio: 1:1
+===
+A freshly baked artisan sourdough loaf with perfectly scored golden
+crust, wisps of steam rising, placed on a worn wooden cutting board,
+linen cloth and wheat stalks as props, soft natural side lighting,
+professional food photography, appetizing textures and colors, shallow
+depth of field, rustic farmhouse aesthetic
+[PROMPT END]
+```
+
+TECHNOLOGY:
+```
+[PROMPT START]
+Title: Hands Typing on Modern Laptop with Code on Screen
+Keywords: coding, laptop, programming, technology, developer, software, computer, keyboard, screen, hands, typing, work, tech, digital, modern
+Aspect Ratio: 16:9
+===
+Close-up of hands typing on a sleek modern laptop keyboard, screen
+displaying colorful code syntax, soft desk lamp lighting, minimalist
+workspace setup, shallow depth of field focusing on fingers and keys,
+professional technology photography, clean contemporary aesthetic,
+subtle blue ambient glow from screen
+[PROMPT END]
+```
+
+================================================================================

@@ -204,6 +204,34 @@ body {
   display: none;
 }
 
+.button-row {
+  display: flex;
+  gap: 8px;
+}
+
+.button-row #generateBtn {
+  flex: 1;
+}
+
+.btn-open-comfy {
+  padding: 14px 16px;
+  background: var(--bg-card);
+  color: var(--neon-cyan);
+  border: 1px solid var(--neon-cyan);
+  border-radius: 12px;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+  transition: all 0.3s ease;
+  white-space: nowrap;
+}
+
+.btn-open-comfy:hover {
+  background: var(--neon-cyan);
+  color: var(--bg-dark);
+  box-shadow: 0 0 15px rgba(0, 245, 212, 0.4);
+}
+
 .history-header {
   display: flex;
   justify-content: space-between;

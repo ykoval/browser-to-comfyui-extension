@@ -481,6 +481,12 @@ function parsePromptMetadata(promptText: string): PromptMetadata {
   return result;
 }
 
+function buildWorkflowJsonForClipboard(payload: ComfyUIPayload): string {
+  const seed = payload.seed === -1 ? Math.floor(Math.random() * 1000000000000) : payload.seed;
+  const liteGraphWorkflow = buildLiteGraphWorkflow(payload, seed);
+  return JSON.stringify(liteGraphWorkflow);
+}
+
 export {
   getSettings,
   saveSettings,
@@ -504,6 +510,7 @@ export {
   pollForImage,
   getRelativeTime,
   parsePromptMetadata,
+  buildWorkflowJsonForClipboard,
 };
 
 export type { PromptMetadata };

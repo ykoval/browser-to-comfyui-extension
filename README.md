@@ -2,6 +2,86 @@
 
 A Chrome extension that allows you to save prompts from any website and send them to a local ComfyUI instance for image generation.
 
+---
+
+## Complete Asset Creation Workflow
+
+This extension is part of a two-tool workflow for AI-generated stock content. Here's how the pieces fit together:
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                        COMPLETE WORKFLOW OVERVIEW                           │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  1. IDEATION & PROMPT CREATION (Browser)                                    │
+│     ├── Chat with AI (Claude, ChatGPT, etc.) to develop ideas              │
+│     ├── Research trends, search for details                                 │
+│     └── AI outputs formatted prompts with [PROMPT START]...[PROMPT END]    │
+│                                                                             │
+│  2. PROMPT CAPTURE (This Extension)  ◄── YOU ARE HERE                      │
+│     ├── Extension auto-detects prompts between markers                      │
+│     ├── Prompts include title/keywords section (separated by ===)          │
+│     └── Extension fires requests to ComfyUI API                            │
+│                                                                             │
+│  3. IMAGE GENERATION (ComfyUI)                                              │
+│     ├── Receives workflow with prompt from extension                        │
+│     ├── Generates images using loaded models                                │
+│     └── Saves PNG files with embedded workflow metadata                     │
+│                                                                             │
+│  4. UPSCALING (Topaz Photo AI) [Manual Step]                               │
+│     ├── Open generated PNGs in Topaz                                        │
+│     ├── Upscale to higher resolution                                        │
+│     └── Save with "-topaz-" suffix (enables auto-pairing)                  │
+│                                                                             │
+│  5. METADATA & UPLOAD (ComfyUI to Adobe Stock CSV App)                     │
+│     ├── Scan folder → detects originals + upscales                         │
+│     ├── Extract prompts from PNG metadata                                   │
+│     ├── Generate Adobe Stock metadata via LM Studio                         │
+│     ├── Optimize keywords with Google Trends                                │
+│     ├── Export CSV + Upload via SFTP                                        │
+│     └── Submit to Adobe Stock Contributor Portal                            │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Related Projects
+
+| Project | Purpose | Location |
+|---------|---------|----------|
+| **Browser to ComfyUI Extension** | Captures prompts from browser, sends to ComfyUI | This project |
+| **ComfyUI to Adobe Stock CSV** | Processes outputs, generates metadata, uploads | `comfy-folder-adobe-csv/` |
+
+### Prompt Format Convention
+
+When chatting with AI to create prompts, use this format:
+
+```
+[PROMPT START]
+Title: Serene Mountain Lake at Golden Hour
+Keywords: mountain, lake, sunset, nature, landscape, peaceful, reflection
+===
+A breathtaking view of a crystal clear mountain lake during golden hour,
+with snow-capped peaks reflecting in the still water, warm orange and
+pink clouds in the sky, photorealistic, 8k quality
+[PROMPT END]
+```
+
+- **Markers**: `[PROMPT START]` and `[PROMPT END]` - detected by this extension
+- **Title/Keywords**: Pre-fills metadata fields in the CSV app
+- **Separator**: `===` divides metadata from generation prompt
+- **Prompt**: The actual text sent to ComfyUI for image generation
+
+### AI Chat Rules for Prompt Generation
+
+When working with AI assistants, instruct them to:
+
+1. **Use markers** - Wrap prompts with `[PROMPT START]` and `[PROMPT END]`
+2. **Include metadata** - Add `Title:` and `Keywords:` lines at the top
+3. **Use separator** - Place `===` between metadata and the actual prompt
+4. **Be descriptive** - Include style, quality, and technical details in the prompt
+
+---
+
 ## Features
 
 - Context menu "Save as Prompt" for selected text

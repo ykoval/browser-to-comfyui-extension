@@ -1,12 +1,13 @@
 /// <reference types="chrome" />
 
-import { getSettings, saveSettings, getHistory, clearHistory, getActiveTab, setActiveTab, fetchComfyUIQueue, cancelPrompt, deletePromptEntry, addPromptEntry, sendToComfyUI, pollForImage, updatePromptEntry, getRelativeTime, isAutoDetectEnabled, toggleAutoDetect, extractDomain, parsePromptMetadata } from './utils';
+import { getSettings, saveSettings, getHistory, clearHistory, getActiveTab, setActiveTab, fetchComfyUIQueue, cancelPrompt, deletePromptEntry, addPromptEntry, sendToComfyUI, pollForImage, updatePromptEntry, getRelativeTime, isAutoDetectEnabled, toggleAutoDetect, extractDomain, parsePromptMetadata, buildWorkflowJsonForClipboard } from './utils';
 import { PromptEntry, ComfyUISettings, ASPECT_RATIOS, ImportedWorkflow, MappingType } from './types';
 import { getWorkflows, addWorkflow, deleteWorkflow, updateWorkflow, getActiveWorkflowId, setActiveWorkflowId, detectWorkflowMappings, findOutputNodeId, parseWorkflowFile, DetectedMapping } from './workflow-utils';
 
 class PopupApp {
   private promptInput: HTMLTextAreaElement;
   private generateBtn: HTMLButtonElement;
+  private openInComfyBtn: HTMLButtonElement;
   private autoSendToggle: HTMLInputElement;
   private historyList: HTMLElement;
   private clearHistoryBtn: HTMLButtonElement;
@@ -54,6 +55,7 @@ class PopupApp {
   constructor() {
     this.promptInput = document.getElementById('promptInput') as HTMLTextAreaElement;
     this.generateBtn = document.getElementById('generateBtn') as HTMLButtonElement;
+    this.openInComfyBtn = document.getElementById('openInComfyBtn') as HTMLButtonElement;
     this.autoSendToggle = document.getElementById('autoSendToggle') as HTMLInputElement;
     this.historyList = document.getElementById('historyList') as HTMLElement;
     this.clearHistoryBtn = document.getElementById('clearHistoryBtn') as HTMLButtonElement;
@@ -265,6 +267,7 @@ class PopupApp {
 
   private bindEvents() {
     this.generateBtn.addEventListener('click', this.handleGenerate.bind(this));
+    this.openInComfyBtn.addEventListener('click', this.handleOpenInComfy.bind(this));
     this.autoSendToggle.addEventListener('change', this.handleAutoSendToggle.bind(this));
     this.saveSettingsBtn.addEventListener('click', this.handleSaveSettings.bind(this));
     this.tabBtns.forEach(btn => btn.addEventListener('click', this.handleTabClick.bind(this)));
@@ -576,6 +579,27 @@ class PopupApp {
   private async handleAutoSendToggle() {
     this.settings.autoSend = this.autoSendToggle.checked;
     await saveSettings(this.settings);
+  }
+
+  private async handleOpenInComfy() {
+    const prompt = this.promptInput.value.trim();
+    const payload = this.buildPayload(prompt || 'Test prompt');
+    const workflowJson = buildWorkflowJsonForClipboard(payload);
+
+    try {
+      await navigator.clipboard.writeText(workflowJson);
+      this.openInComfyBtn.textContent = 'Copied!';
+      window.open(this.settings.serverAddress, '_blank');
+      setTimeout(() => {
+        this.openInComfyBtn.textContent = 'Open in ComfyUI';
+      }, 2000);
+    } catch (err) {
+      console.error('Failed to copy workflow:', err);
+      this.openInComfyBtn.textContent = 'Copy failed';
+      setTimeout(() => {
+        this.openInComfyBtn.textContent = 'Open in ComfyUI';
+      }, 2000);
+    }
   }
 
   private async handleSendToComfyUI(entryId: string) {
