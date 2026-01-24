@@ -40,14 +40,15 @@ class OptionsApp {
   private async handleSubmit(event: Event) {
     event.preventDefault();
 
+    const currentSettings = await getSettings();
     const settings: ComfyUISettings = {
+      ...currentSettings,
       serverAddress: this.serverAddress.value,
       apiPath: this.apiPath.value,
       workflowId: this.workflowId.value,
       negativePrompt: this.negativePrompt.value,
       seed: parseInt(this.seed.value) || -1,
       autoSend: this.autoSend.checked,
-      headers: {}, // TODO: Add headers input if needed
     };
 
     await saveSettings(settings);

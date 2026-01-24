@@ -22,8 +22,12 @@ src/
 ├── utils.ts           # Storage helpers, API client, workflow builder
 ├── workflow-utils.ts  # Workflow import & mapping detection
 └── workflows/
-    ├── qwen-t2i-base.json      # Base text-to-image workflow
-    └── qwen-t2i-upscale.json   # Upscale nodes (merged when enabled)
+    ├── qwen-t2i-base.json           # Base T2I workflow (KSampler upscale)
+    ├── qwen-t2i-upscale.json        # KSampler upscale nodes
+    ├── qwen-t2i-litegraph.json      # LiteGraph format for PNG embedding
+    ├── qwen-t2i-seedvr-base.json    # Base T2I workflow (SeedVR upscale)
+    ├── qwen-t2i-seedvr-upscale.json # SeedVR2 upscale nodes
+    └── qwen-t2i-seedvr-litegraph.json # SeedVR LiteGraph format
 ```
 
 ## Key Components
@@ -71,6 +75,7 @@ interface ComfyUISettings {
   serverAddress: string;      // Default: http://192.168.50.143:8188
   apiPath: string;            // Default: /prompt
   workflowId: string;
+  builtInWorkflow: BuiltInWorkflowType; // 'qwen-t2i' | 'qwen-t2i-seedvr'
   autoSend: boolean;          // Generate on capture
   negativePrompt: string;
   seed: number;               // -1 for random
@@ -159,7 +164,7 @@ npm run clean   # Remove dist/ folder
 3. Apply in `buildComfyUIWorkflow()` in `utils.ts`
 4. Add UI control in `popup.html` + `popup.ts`
 
-### Node ID Reference
+### Node ID Reference (Both Workflows)
 
 | Node | Parameter | Payload Field |
 |------|-----------|---------------|
@@ -167,7 +172,25 @@ npm run clean   # Remove dist/ folder
 | 105 | text | `payload.negativePrompt` |
 | 118 | text | `payload.prompt` |
 | 113 | ratio, Megapixel | `payload.aspectRatio/megapixel` |
-| 83 | seed | Random (upscale sampler) |
+| 79 | SaveImage | Regular output |
+| 81 | SaveImage | Upscaled output |
+
+### KSampler Upscale Nodes (qwen-t2i)
+| Node | Purpose |
+|------|---------|
+| 83 | KSampler for upscale (random seed) |
+
+### SeedVR Upscale Nodes (qwen-t2i-seedvr)
+| Node | Purpose | Constraints |
+|------|---------|-------------|
+| 120 | cleanGpuUsed | |
+| 121 | ImageScaleBy (0.5x) | |
+| 122 | SeedVR2LoadDiTModel | |
+| 123 | SeedVR2LoadVAEModel | |
+| 124 | SeedVR2VideoUpscaler | seed max: 4294967295, color_correction: "lab" |
+| 125 | VRAMCleanup | |
+| 126 | RAMCleanup | |
+| 127 | LayerColor: AutoAdjustV2 | |
 
 ## Feature Implementation Guide
 
@@ -203,6 +226,12 @@ History updates use a lock mechanism to prevent race conditions:
 - Polls `/history/{id}` for completion
 - 180 attempts max (~6 min timeout for upscale)
 
+### Image Polling Logic
+- `pollForImage(promptId, settings, enableUpscale)` waits for correct output node
+- When `enableUpscale=true`: waits specifically for node 81, ignores node 79
+- When `enableUpscale=false`: returns first available image from node 79
+- Prevents early return when base image finishes before upscale
+
 ### Error Handling
 - Graceful degradation if ComfyUI unavailable
 - Network errors caught and logged
@@ -224,6 +253,15 @@ const ASPECT_RATIOS = [
 2. **API client**: sendToComfyUI, pollForImage, error handling
 3. **Workflow builder**: parameter application, upscale merging
 4. **Prompt extraction**: marker parsing, deduplication
+
+## Built-in Workflows
+
+| ID | Name | Upscaler | Description |
+|----|------|----------|-------------|
+| `qwen-t2i` | Qwen T2I | KSampler | Standard upscale, faster |
+| `qwen-t2i-seedvr` | Qwen T2I + SeedVR | SeedVR2VideoUpscaler | Higher quality, slower |
+
+Selection via `builtInWorkflow` setting in UI dropdown.
 
 ## Common Modifications
 
