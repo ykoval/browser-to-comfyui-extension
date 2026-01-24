@@ -1,7 +1,7 @@
 /// <reference types="chrome" />
 
 import { getSettings, saveSettings, getHistory, clearHistory, getActiveTab, setActiveTab, fetchComfyUIQueue, cancelPrompt, deletePromptEntry, addPromptEntry, sendToComfyUI, pollForImage, updatePromptEntry, getRelativeTime, isAutoDetectEnabled, toggleAutoDetect, extractDomain, parsePromptMetadata, buildWorkflowJsonForClipboard } from './utils';
-import { PromptEntry, ComfyUISettings, ASPECT_RATIOS, ImportedWorkflow, MappingType } from './types';
+import { PromptEntry, ComfyUISettings, ASPECT_RATIOS, ImportedWorkflow, MappingType, BUILT_IN_WORKFLOWS, BuiltInWorkflowType } from './types';
 import { getWorkflows, addWorkflow, deleteWorkflow, updateWorkflow, getActiveWorkflowId, setActiveWorkflowId, detectWorkflowMappings, findOutputNodeId, parseWorkflowFile, DetectedMapping } from './workflow-utils';
 
 class PopupApp {
@@ -11,6 +11,7 @@ class PopupApp {
   private autoSendToggle: HTMLInputElement;
   private historyList: HTMLElement;
   private clearHistoryBtn: HTMLButtonElement;
+  private refreshStatusesBtn: HTMLButtonElement;
   private serverAddressInput: HTMLInputElement;
   private negativePromptInput: HTMLTextAreaElement;
   private seedInput: HTMLInputElement;
@@ -20,6 +21,7 @@ class PopupApp {
   private aspectRatioSelect: HTMLSelectElement;
   private megapixelInput: HTMLInputElement;
   private enableUpscaleToggle: HTMLInputElement;
+  private enableLoraToggle: HTMLInputElement;
   private promptStartMarkerInput: HTMLInputElement;
   private promptEndMarkerInput: HTMLInputElement;
   private saveSettingsBtn: HTMLButtonElement;
@@ -35,6 +37,7 @@ class PopupApp {
   private tabBtns: NodeListOf<HTMLButtonElement>;
   private tabContents: NodeListOf<HTMLElement>;
   private buildTimeElement: HTMLElement;
+  private builtInWorkflowSelect: HTMLSelectElement;
   private workflowSelect: HTMLSelectElement;
   private importWorkflowBtn: HTMLButtonElement;
   private editMappingsBtn: HTMLButtonElement;
@@ -59,6 +62,7 @@ class PopupApp {
     this.autoSendToggle = document.getElementById('autoSendToggle') as HTMLInputElement;
     this.historyList = document.getElementById('historyList') as HTMLElement;
     this.clearHistoryBtn = document.getElementById('clearHistoryBtn') as HTMLButtonElement;
+    this.refreshStatusesBtn = document.getElementById('refreshStatusesBtn') as HTMLButtonElement;
     this.serverAddressInput = document.getElementById('serverAddress') as HTMLInputElement;
     this.negativePromptInput = document.getElementById('negativePrompt') as HTMLTextAreaElement;
     this.seedInput = document.getElementById('seed') as HTMLInputElement;
@@ -68,6 +72,7 @@ class PopupApp {
     this.aspectRatioSelect = document.getElementById('aspectRatio') as HTMLSelectElement;
     this.megapixelInput = document.getElementById('megapixel') as HTMLInputElement;
     this.enableUpscaleToggle = document.getElementById('enableUpscale') as HTMLInputElement;
+    this.enableLoraToggle = document.getElementById('enableLora') as HTMLInputElement;
     this.promptStartMarkerInput = document.getElementById('promptStartMarker') as HTMLInputElement;
     this.promptEndMarkerInput = document.getElementById('promptEndMarker') as HTMLInputElement;
     this.saveSettingsBtn = document.getElementById('saveSettingsBtn') as HTMLButtonElement;
@@ -83,6 +88,7 @@ class PopupApp {
     this.tabBtns = document.querySelectorAll('.tab-btn') as NodeListOf<HTMLButtonElement>;
     this.tabContents = document.querySelectorAll('.tab-content') as NodeListOf<HTMLElement>;
     this.buildTimeElement = document.getElementById('buildTime') as HTMLElement;
+    this.builtInWorkflowSelect = document.getElementById('builtInWorkflowSelect') as HTMLSelectElement;
     this.workflowSelect = document.getElementById('workflowSelect') as HTMLSelectElement;
     this.importWorkflowBtn = document.getElementById('importWorkflowBtn') as HTMLButtonElement;
     this.editMappingsBtn = document.getElementById('editMappingsBtn') as HTMLButtonElement;
@@ -94,6 +100,7 @@ class PopupApp {
     this.saveMappingsBtn = document.getElementById('saveMappingsBtn') as HTMLButtonElement;
 
     this.initAspectRatioOptions();
+    this.initBuiltInWorkflowOptions();
     this.init();
   }
 
@@ -103,6 +110,16 @@ class PopupApp {
       option.value = ratio;
       option.textContent = ratio;
       this.aspectRatioSelect.appendChild(option);
+    });
+  }
+
+  private initBuiltInWorkflowOptions() {
+    BUILT_IN_WORKFLOWS.forEach(wf => {
+      const option = document.createElement('option');
+      option.value = wf.id;
+      option.textContent = wf.name;
+      option.title = wf.description;
+      this.builtInWorkflowSelect.appendChild(option);
     });
   }
 
@@ -124,7 +141,7 @@ class PopupApp {
   }
 
   private async initWorkflowSelect() {
-    this.workflowSelect.innerHTML = '<option value="">Built-in (Qwen T2I)</option>';
+    this.workflowSelect.innerHTML = '<option value="">Use Built-in</option>';
     this.workflows.forEach(wf => {
       const option = document.createElement('option');
       option.value = wf.id;
@@ -186,11 +203,9 @@ class PopupApp {
   private async syncWithComfyUIQueue() {
     try {
       const queue = await fetchComfyUIQueue(this.settings);
-      if (!queue.running.length && !queue.pending.length) return;
-      
       const runningIds = new Set(queue.running.map(q => q.promptId));
       const pendingIds = new Set(queue.pending.map(q => q.promptId));
-      
+
       let updated = false;
       for (const entry of this.history) {
         if (entry.imageStatus === 'generating' && entry.promptId) {
@@ -219,11 +234,36 @@ class PopupApp {
       const data = await response.json();
       const promptHistory = data[promptId];
       if (!promptHistory?.outputs) return null;
-      
-      const upscaledNode = promptHistory.outputs['81'];
-      const regularNode = promptHistory.outputs['79'];
-      const saveImageNode = upscaledNode?.images?.[0] ? upscaledNode : regularNode;
-      
+
+      let saveImageNode = null;
+
+      // Check active workflow's output node first
+      const activeWorkflowId = await getActiveWorkflowId();
+      if (activeWorkflowId) {
+        const workflow = this.workflows.find(w => w.id === activeWorkflowId);
+        if (workflow?.outputNodeId) {
+          saveImageNode = promptHistory.outputs[workflow.outputNodeId];
+        }
+      }
+
+      // Fall back to hardcoded nodes for built-in workflow
+      if (!saveImageNode?.images?.[0]) {
+        const upscaledNode = promptHistory.outputs['81'];
+        const regularNode = promptHistory.outputs['79'];
+        saveImageNode = upscaledNode?.images?.[0] ? upscaledNode : regularNode;
+      }
+
+      // Last resort: search all output nodes
+      if (!saveImageNode?.images?.[0]) {
+        for (const nodeId of Object.keys(promptHistory.outputs)) {
+          const node = promptHistory.outputs[nodeId];
+          if (node?.images?.[0]) {
+            saveImageNode = node;
+            break;
+          }
+        }
+      }
+
       if (saveImageNode?.images?.[0]) {
         const img = saveImageNode.images[0];
         return `${this.settings.serverAddress}/view?filename=${encodeURIComponent(img.filename)}&subfolder=${encodeURIComponent(img.subfolder)}&type=${img.type}`;
@@ -245,6 +285,8 @@ class PopupApp {
     this.aspectRatioSelect.value = this.settings.aspectRatio;
     this.megapixelInput.value = String(this.settings.megapixel);
     this.enableUpscaleToggle.checked = this.settings.enableUpscale;
+    this.enableLoraToggle.checked = this.settings.enableLora !== false; // Default to true
+    this.builtInWorkflowSelect.value = this.settings.builtInWorkflow || 'qwen-t2i';
     this.promptStartMarkerInput.value = this.settings.promptStartMarker;
     this.promptEndMarkerInput.value = this.settings.promptEndMarker;
     this.updateBuildTime();
@@ -272,15 +314,18 @@ class PopupApp {
     this.saveSettingsBtn.addEventListener('click', this.handleSaveSettings.bind(this));
     this.tabBtns.forEach(btn => btn.addEventListener('click', this.handleTabClick.bind(this)));
     this.clearHistoryBtn.addEventListener('click', this.handleClearHistory.bind(this));
+    this.refreshStatusesBtn.addEventListener('click', this.handleRefreshStatuses.bind(this));
     this.promptInput.addEventListener('input', this.handlePromptInputChange.bind(this));
     this.aspectRatioSelect.addEventListener('change', this.handlePromptControlChange.bind(this));
     this.megapixelInput.addEventListener('change', this.handlePromptControlChange.bind(this));
     this.stepsInput.addEventListener('change', this.handlePromptControlChange.bind(this));
     this.enableUpscaleToggle.addEventListener('change', this.handlePromptControlChange.bind(this));
+    this.enableLoraToggle.addEventListener('change', this.handlePromptControlChange.bind(this));
     this.autoDetectToggle.addEventListener('change', this.handleAutoDetectToggle.bind(this));
     this.scanPageBtn.addEventListener('click', this.handleScanPage.bind(this));
     this.togglePasteBtn.addEventListener('click', this.handleTogglePaste.bind(this));
     this.scanPasteBtn.addEventListener('click', this.handleScanPaste.bind(this));
+    this.builtInWorkflowSelect.addEventListener('change', this.handleBuiltInWorkflowChange.bind(this));
     this.workflowSelect.addEventListener('change', this.handleWorkflowChange.bind(this));
     this.importWorkflowBtn.addEventListener('click', () => this.workflowFileInput.click());
     this.workflowFileInput.addEventListener('change', this.handleWorkflowImport.bind(this));
@@ -421,6 +466,44 @@ class PopupApp {
     }
   }
 
+  private async handleRefreshStatuses() {
+    this.refreshStatusesBtn.disabled = true;
+    this.refreshStatusesBtn.textContent = '...';
+
+    try {
+      const stuckItems = this.history.filter(
+        entry => entry.imageStatus === 'generating' || entry.imageStatus === 'pending'
+      );
+
+      if (stuckItems.length === 0) {
+        return;
+      }
+
+      for (const entry of stuckItems) {
+        if (entry.promptId) {
+          const imageUrl = await this.checkHistoryForImage(entry.promptId);
+          if (imageUrl) {
+            await updatePromptEntry(entry.id, { imageStatus: 'done', imageUrl });
+          } else {
+            await updatePromptEntry(entry.id, { imageStatus: 'error' });
+          }
+        } else if (entry.imageStatus === 'pending') {
+          // Pending items without promptId - leave as pending
+        } else {
+          // Generating without promptId - mark as error
+          await updatePromptEntry(entry.id, { imageStatus: 'error' });
+        }
+      }
+
+      await this.refreshHistory();
+    } catch (error) {
+      console.error('Refresh statuses error:', error);
+    } finally {
+      this.refreshStatusesBtn.disabled = false;
+      this.refreshStatusesBtn.textContent = '↻';
+    }
+  }
+
   private handlePromptInputChange() {
     // Parse metadata from prompt to auto-detect aspect ratio
     const metadata = parsePromptMetadata(this.promptInput.value);
@@ -434,6 +517,7 @@ class PopupApp {
     this.settings.megapixel = parseFloat(this.megapixelInput.value) || 2.5;
     this.settings.steps = parseInt(this.stepsInput.value) || 20;
     this.settings.enableUpscale = this.enableUpscaleToggle.checked;
+    this.settings.enableLora = this.enableLoraToggle.checked;
     await saveSettings(this.settings);
   }
 
@@ -458,6 +542,8 @@ class PopupApp {
     this.settings.aspectRatio = this.aspectRatioSelect.value;
     this.settings.megapixel = parseFloat(this.megapixelInput.value) || 2.5;
     this.settings.enableUpscale = this.enableUpscaleToggle.checked;
+    this.settings.enableLora = this.enableLoraToggle.checked;
+    this.settings.builtInWorkflow = this.builtInWorkflowSelect.value as BuiltInWorkflowType;
     this.settings.promptStartMarker = this.promptStartMarkerInput.value || '[PROMPT START]';
     this.settings.promptEndMarker = this.promptEndMarkerInput.value || '[PROMPT END]';
     await saveSettings(this.settings);
@@ -541,6 +627,7 @@ class PopupApp {
       aspectRatio: aspectRatio,
       megapixel: this.settings.megapixel,
       enableUpscale: this.settings.enableUpscale,
+      enableLora: this.settings.enableLora !== false,
     };
   }
 
@@ -559,7 +646,7 @@ class PopupApp {
       await updatePromptEntry(entry.id, { imageStatus: 'generating', promptId });
       await this.refreshHistory();
 
-      const imageUrl = await pollForImage(promptId, this.settings);
+      const imageUrl = await pollForImage(promptId, this.settings, this.settings.enableUpscale);
       if (imageUrl) {
         await updatePromptEntry(entry.id, { imageStatus: 'done', imageUrl });
       } else {
@@ -584,7 +671,7 @@ class PopupApp {
   private async handleOpenInComfy() {
     const prompt = this.promptInput.value.trim();
     const payload = this.buildPayload(prompt || 'Test prompt');
-    const workflowJson = buildWorkflowJsonForClipboard(payload);
+    const workflowJson = buildWorkflowJsonForClipboard(payload, this.settings.builtInWorkflow);
 
     try {
       await navigator.clipboard.writeText(workflowJson);
@@ -616,7 +703,7 @@ class PopupApp {
       await updatePromptEntry(entryId, { promptId });
       await this.refreshHistory();
 
-      const imageUrl = await pollForImage(promptId, this.settings);
+      const imageUrl = await pollForImage(promptId, this.settings, this.settings.enableUpscale);
       if (imageUrl) {
         await updatePromptEntry(entryId, { imageStatus: 'done', imageUrl });
       } else {
@@ -712,10 +799,18 @@ class PopupApp {
     this.renderHistory();
   }
 
+  private async handleBuiltInWorkflowChange() {
+    this.settings.builtInWorkflow = this.builtInWorkflowSelect.value as BuiltInWorkflowType;
+    await saveSettings(this.settings);
+    const workflow = BUILT_IN_WORKFLOWS.find(w => w.id === this.settings.builtInWorkflow);
+    this.settingsStatus.textContent = `Switched to ${workflow?.name || 'Qwen T2I'}`;
+    setTimeout(() => { this.settingsStatus.textContent = ''; }, 2000);
+  }
+
   private async handleWorkflowChange() {
     const selectedId = this.workflowSelect.value || null;
     await setActiveWorkflowId(selectedId);
-    this.settingsStatus.textContent = selectedId ? 'Workflow changed' : 'Using built-in workflow';
+    this.settingsStatus.textContent = selectedId ? 'Custom workflow selected' : 'Using built-in workflow';
     setTimeout(() => { this.settingsStatus.textContent = ''; }, 2000);
   }
 

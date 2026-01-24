@@ -1,7 +1,10 @@
+type BuiltInWorkflowType = 'qwen-t2i' | 'qwen-t2i-seedvr';
+
 interface ComfyUISettings {
   serverAddress: string;
   apiPath: string;
   workflowId: string;
+  builtInWorkflow: BuiltInWorkflowType;
   autoSend: boolean;
   negativePrompt: string;
   seed: number;
@@ -12,6 +15,7 @@ interface ComfyUISettings {
   aspectRatio: string;
   megapixel: number;
   enableUpscale: boolean;
+  enableLora: boolean;
   promptStartMarker: string;
   promptEndMarker: string;
 }
@@ -35,6 +39,7 @@ interface ComfyUIPayload {
   aspectRatio: string;
   megapixel: number;
   enableUpscale: boolean;
+  enableLora: boolean;
 }
 
 interface ComfyUIResponse {
@@ -92,10 +97,16 @@ const ASPECT_RATIOS = [
   '9:32 ▯',
 ] as const;
 
+const BUILT_IN_WORKFLOWS: { id: BuiltInWorkflowType; name: string; description: string }[] = [
+  { id: 'qwen-t2i', name: 'Qwen T2I', description: 'Standard KSampler upscale' },
+  { id: 'qwen-t2i-seedvr', name: 'Qwen T2I + SeedVR', description: 'SeedVR2 upscaler (higher quality)' },
+];
+
 const DEFAULT_SETTINGS: ComfyUISettings = {
   serverAddress: 'http://192.168.50.143:8188',
   apiPath: '/prompt',
   workflowId: 'default_workflow',
+  builtInWorkflow: 'qwen-t2i',
   autoSend: false,
   negativePrompt: 'dust, dots, stain',
   seed: -1,
@@ -106,11 +117,12 @@ const DEFAULT_SETTINGS: ComfyUISettings = {
   aspectRatio: '16:9 ▭',
   megapixel: 2.5,
   enableUpscale: false,
+  enableLora: true,
   promptStartMarker: '[PROMPT START]',
   promptEndMarker: '[PROMPT END]',
 };
 
 const MAX_HISTORY_ENTRIES = 50;
 
-export type { ComfyUISettings, PromptEntry, ComfyUIPayload, ComfyUIResponse, MappingType, WorkflowMapping, ImportedWorkflow, WorkflowNode };
-export { STORAGE_KEYS, DEFAULT_SETTINGS, MAX_HISTORY_ENTRIES, ASPECT_RATIOS };
+export type { ComfyUISettings, PromptEntry, ComfyUIPayload, ComfyUIResponse, MappingType, WorkflowMapping, ImportedWorkflow, WorkflowNode, BuiltInWorkflowType };
+export { STORAGE_KEYS, DEFAULT_SETTINGS, MAX_HISTORY_ENTRIES, ASPECT_RATIOS, BUILT_IN_WORKFLOWS };

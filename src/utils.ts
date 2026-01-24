@@ -1,7 +1,9 @@
-import { ComfyUISettings, PromptEntry, STORAGE_KEYS, DEFAULT_SETTINGS, MAX_HISTORY_ENTRIES, ComfyUIPayload, WorkflowNode } from './types';
+import { ComfyUISettings, PromptEntry, STORAGE_KEYS, DEFAULT_SETTINGS, MAX_HISTORY_ENTRIES, ComfyUIPayload, WorkflowNode, BuiltInWorkflowType } from './types';
 import baseWorkflowTemplate from './workflows/qwen-t2i-base.json';
 import upscaleNodesTemplate from './workflows/qwen-t2i-upscale.json';
 import liteGraphWorkflowTemplate from './workflows/qwen-t2i-litegraph.json';
+import seedvrCombinedWorkflowTemplate from './workflows/qwen-t2i-seedvr-combined.json';
+import seedvrLiteGraphWorkflowTemplate from './workflows/qwen-t2i-seedvr-litegraph.json';
 import { getActiveWorkflow, applyMappingsToWorkflow } from './workflow-utils';
 
 /// <reference types="chrome" />
@@ -226,7 +228,7 @@ async function sendToComfyUI(payload: ComfyUIPayload, settings: ComfyUISettings)
     );
     // For imported workflows, use the template LiteGraph workflow
     const seed = payload.seed === -1 ? Math.floor(Math.random() * 1000000000000) : payload.seed;
-    const liteGraphWorkflow = buildLiteGraphWorkflow({ ...payload, prompt: promptText }, seed);
+    const liteGraphWorkflow = buildLiteGraphWorkflow({ ...payload, prompt: promptText }, seed, settings.builtInWorkflow);
     body = {
       prompt: appliedWorkflow,
       extra_data: {
@@ -236,7 +238,7 @@ async function sendToComfyUI(payload: ComfyUIPayload, settings: ComfyUISettings)
       }
     };
   } else {
-    body = buildComfyUIWorkflow({ ...payload, prompt: promptText });
+    body = buildComfyUIWorkflow({ ...payload, prompt: promptText }, settings.builtInWorkflow);
   }
 
   const response = await fetch(url, {
@@ -257,9 +259,10 @@ async function sendToComfyUI(payload: ComfyUIPayload, settings: ComfyUISettings)
   return result.prompt_id;
 }
 
-async function pollForImage(promptId: string, settings: ComfyUISettings, maxAttempts = 180): Promise<string | null> {
+async function pollForImage(promptId: string, settings: ComfyUISettings, enableUpscale = false, maxAttempts = 180): Promise<string | null> {
   const historyUrl = `${settings.serverAddress}/history/${promptId}`;
-  console.log('Polling for image:', historyUrl);
+  const targetNodeId = enableUpscale ? '81' : '79';
+  console.log('Polling for image:', historyUrl, 'enableUpscale:', enableUpscale, 'targetNode:', targetNodeId);
 
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     await new Promise(resolve => setTimeout(resolve, 2000));
@@ -281,23 +284,49 @@ async function pollForImage(promptId: string, settings: ComfyUISettings, maxAtte
       }
 
       const hasOutputs = promptHistory.outputs && Object.keys(promptHistory.outputs).length > 0;
+      const isError = promptHistory.status?.status_str === 'error';
       console.log('Has outputs:', hasOutputs, 'Status:', promptHistory.status);
+
+      // If workflow errored, stop polling and return null
+      if (isError && !hasOutputs) {
+        console.log('Workflow failed with error, no outputs available');
+        return null;
+      }
 
       if (hasOutputs) {
         const activeWorkflow = await getActiveWorkflow();
         let saveImageNode = null;
 
+        // For imported workflows, use the configured output node
         if (activeWorkflow?.outputNodeId) {
           saveImageNode = promptHistory.outputs[activeWorkflow.outputNodeId];
         }
-        
+
+        // For built-in workflows, use the target node based on upscale setting
         if (!saveImageNode?.images?.[0]) {
-          const upscaledNode = promptHistory.outputs['81'];
-          const regularNode = promptHistory.outputs['79'];
-          saveImageNode = upscaledNode?.images?.[0] ? upscaledNode : regularNode;
+          const targetNode = promptHistory.outputs[targetNodeId];
+          if (targetNode?.images?.[0]) {
+            saveImageNode = targetNode;
+            console.log(`Found image at target node ${targetNodeId}`);
+          } else if (enableUpscale) {
+            // Upscale is enabled but node 81 not ready yet
+            if (isError) {
+              // Workflow errored - fall back to node 79 if available
+              console.log('Upscale failed, falling back to regular output');
+              saveImageNode = promptHistory.outputs['79'];
+            } else {
+              // Keep waiting for upscale to complete
+              console.log(`Waiting for upscale node ${targetNodeId} to complete...`);
+              continue;
+            }
+          } else {
+            // Fallback to node 79 for non-upscale
+            saveImageNode = promptHistory.outputs['79'];
+          }
         }
 
-        if (!saveImageNode?.images?.[0]) {
+        // Last resort: search all output nodes (only if not waiting for upscale)
+        if (!saveImageNode?.images?.[0] && !enableUpscale) {
           for (const nodeId of Object.keys(promptHistory.outputs)) {
             const node = promptHistory.outputs[nodeId];
             if (node?.images?.[0]) {
@@ -352,9 +381,14 @@ interface LiteGraphWorkflow {
   version: number;
 }
 
-function buildLiteGraphWorkflow(payload: ComfyUIPayload, seed: number): LiteGraphWorkflow {
+function buildLiteGraphWorkflow(payload: ComfyUIPayload, seed: number, workflowType: BuiltInWorkflowType = 'qwen-t2i'): LiteGraphWorkflow {
+  // Select template based on workflow type
+  const template = workflowType === 'qwen-t2i-seedvr'
+    ? seedvrLiteGraphWorkflowTemplate
+    : liteGraphWorkflowTemplate;
+
   // Clone the template workflow
-  const lgWorkflow: LiteGraphWorkflow = structuredClone(liteGraphWorkflowTemplate) as LiteGraphWorkflow;
+  const lgWorkflow: LiteGraphWorkflow = structuredClone(template) as unknown as LiteGraphWorkflow;
 
   // Update dynamic values in the LiteGraph workflow nodes
   for (const node of lgWorkflow.nodes) {
@@ -366,8 +400,8 @@ function buildLiteGraphWorkflow(payload: ComfyUIPayload, seed: number): LiteGrap
           node.widgets_values[3] = payload.cfg;       // cfg
         }
         break;
-      case 83: // KSampler - upscale sampler
-        if (node.widgets_values) {
+      case 83: // KSampler - upscale sampler (standard workflow only)
+        if (node.widgets_values && workflowType === 'qwen-t2i') {
           node.widgets_values[0] = Math.floor(Math.random() * 1000000000000); // seed
         }
         break;
@@ -393,9 +427,86 @@ function buildLiteGraphWorkflow(payload: ComfyUIPayload, seed: number): LiteGrap
   return lgWorkflow;
 }
 
-function buildComfyUIWorkflow(payload: ComfyUIPayload): object {
+function buildComfyUIWorkflow(payload: ComfyUIPayload, workflowType: BuiltInWorkflowType = 'qwen-t2i'): object {
   const seed = payload.seed === -1 ? Math.floor(Math.random() * 1000000000000) : payload.seed;
 
+  console.log('[buildComfyUIWorkflow] workflowType:', workflowType, 'enableUpscale:', payload.enableUpscale, 'enableLora:', payload.enableLora);
+
+  // For SeedVR workflow, use combined workflow with toggle
+  if (workflowType === 'qwen-t2i-seedvr') {
+    const workflow: WorkflowTemplate = structuredClone(seedvrCombinedWorkflowTemplate) as WorkflowTemplate;
+
+    // Apply dynamic parameters
+    workflow["3"].inputs.seed = seed;
+    workflow["3"].inputs.steps = payload.steps;
+    workflow["3"].inputs.cfg = payload.cfg;
+    workflow["105"].inputs.text = payload.negativePrompt || "dust, dots, stain";
+    workflow["118"].inputs.text = payload.prompt;
+    workflow["113"].inputs.ratio = payload.aspectRatio;
+    workflow["113"].inputs.Megapixel = payload.megapixel;
+
+    // Handle LoRA toggle
+    if (!payload.enableLora) {
+      console.log('[buildComfyUIWorkflow] LoRA disabled - bypassing node 132');
+      // Remove LoRA node and connect UNET directly to ModelSamplingAuraFlow
+      delete workflow["132"];
+      // Change node 66's model input from [132, 0] to [104, 0]
+      workflow["66"].inputs.model = ["104", 0];
+    }
+
+    if (payload.enableUpscale) {
+      console.log('[buildComfyUIWorkflow] SeedVR with upscale enabled');
+      // Remove node 79 (regular save) - upscale path will be used
+      delete workflow["79"];
+
+      // Set random seed for SeedVR upscaler
+      if (workflow["124"]) {
+        workflow["124"].inputs.seed = Math.floor(Math.random() * 4294967295);
+
+        // Adjust upscale dimensions based on aspect ratio
+        const ratioMatch = payload.aspectRatio.match(/^(\d+):(\d+)/);
+        if (ratioMatch) {
+          const ratioW = parseInt(ratioMatch[1]);
+          const ratioH = parseInt(ratioMatch[2]);
+          const targetPixels = 8294400; // ~8MP
+          const aspectRatio = ratioW / ratioH;
+          let width = Math.sqrt(targetPixels * aspectRatio);
+          let height = Math.sqrt(targetPixels / aspectRatio);
+          width = Math.round(width / 8) * 8;
+          height = Math.round(height / 8) * 8;
+          workflow["124"].inputs.fixed_width = width;
+          workflow["124"].inputs.fixed_height = height;
+          console.log(`[SeedVR] Upscale dimensions for ${ratioW}:${ratioH} = ${width}x${height}`);
+        }
+      }
+    } else {
+      console.log('[buildComfyUIWorkflow] SeedVR without upscale - removing upscale nodes');
+      // Remove upscale nodes (81, 120-127) - keep only base workflow with node 79
+      delete workflow["81"];
+      delete workflow["120"];
+      delete workflow["121"];
+      delete workflow["122"];
+      delete workflow["123"];
+      delete workflow["124"];
+      delete workflow["125"];
+      delete workflow["126"];
+      delete workflow["127"];
+    }
+
+    console.log('[buildComfyUIWorkflow] Workflow nodes:', Object.keys(workflow).join(', '));
+
+    const liteGraphWorkflow = buildLiteGraphWorkflow(payload, seed, workflowType);
+    return {
+      prompt: workflow,
+      extra_data: {
+        extra_pnginfo: {
+          workflow: liteGraphWorkflow
+        }
+      }
+    };
+  }
+
+  // For standard qwen-t2i workflow, use existing merge approach
   const workflow: WorkflowTemplate = structuredClone(baseWorkflowTemplate) as WorkflowTemplate;
 
   workflow["3"].inputs.seed = seed;
@@ -406,14 +517,27 @@ function buildComfyUIWorkflow(payload: ComfyUIPayload): object {
   workflow["113"].inputs.ratio = payload.aspectRatio;
   workflow["113"].inputs.Megapixel = payload.megapixel;
 
-  if (payload.enableUpscale) {
-    const upscaleNodes = structuredClone(upscaleNodesTemplate) as WorkflowTemplate;
-    upscaleNodes["83"].inputs.seed = Math.floor(Math.random() * 1000000000000);
-    Object.assign(workflow, upscaleNodes);
+  // Handle LoRA toggle for standard workflow
+  if (!payload.enableLora) {
+    console.log('[buildComfyUIWorkflow] LoRA disabled - bypassing node 132');
+    delete workflow["132"];
+    workflow["66"].inputs.model = ["104", 0];
   }
 
-  // Build LiteGraph workflow for PNG embedding using the exported template
-  const liteGraphWorkflow = buildLiteGraphWorkflow(payload, seed);
+  if (payload.enableUpscale) {
+    console.log('[buildComfyUIWorkflow] Adding upscale nodes for qwen-t2i');
+    const upscaleNodes = structuredClone(upscaleNodesTemplate) as WorkflowTemplate;
+
+    if (upscaleNodes["83"]) {
+      upscaleNodes["83"].inputs.seed = Math.floor(Math.random() * 1000000000000);
+    }
+
+    Object.assign(workflow, upscaleNodes);
+    console.log('[buildComfyUIWorkflow] Workflow now has nodes:', Object.keys(workflow).join(', '));
+  }
+
+  // Build LiteGraph workflow for PNG embedding using the selected template
+  const liteGraphWorkflow = buildLiteGraphWorkflow(payload, seed, workflowType);
 
   return {
     prompt: workflow,
@@ -481,9 +605,9 @@ function parsePromptMetadata(promptText: string): PromptMetadata {
   return result;
 }
 
-function buildWorkflowJsonForClipboard(payload: ComfyUIPayload): string {
+function buildWorkflowJsonForClipboard(payload: ComfyUIPayload, workflowType: BuiltInWorkflowType = 'qwen-t2i'): string {
   const seed = payload.seed === -1 ? Math.floor(Math.random() * 1000000000000) : payload.seed;
-  const liteGraphWorkflow = buildLiteGraphWorkflow(payload, seed);
+  const liteGraphWorkflow = buildLiteGraphWorkflow(payload, seed, workflowType);
   return JSON.stringify(liteGraphWorkflow);
 }
 

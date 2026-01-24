@@ -39,12 +39,23 @@
   },
   "66": {
     "inputs": {
-      "shift": 3.1,
-      "model": ["104", 0]
+      "shift": 3,
+      "model": ["132", 0]
     },
     "class_type": "ModelSamplingAuraFlow",
     "_meta": {
       "title": "ModelSamplingAuraFlow"
+    }
+  },
+  "132": {
+    "inputs": {
+      "lora_name": "qwen image\\Famegrid_Qwen_Lora_Standard_V1.5_RealSkinFix.safetensors",
+      "strength_model": 1,
+      "model": ["104", 0]
+    },
+    "class_type": "LoraLoaderModelOnly",
+    "_meta": {
+      "title": "LoraLoaderModelOnly"
     }
   },
   "79": {

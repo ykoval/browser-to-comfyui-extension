@@ -22,6 +22,7 @@
             Auto-send selection
           </label>
         </div>
+        <button id="refreshStatusesBtn" class="icon-btn" title="Refresh generation statuses">↻</button>
         <button id="clearHistoryBtn" class="icon-btn" title="Clear history">🗑</button>
       </div>
       <div class="auto-detect-toggle">
@@ -53,6 +54,10 @@
           <label class="inline-toggle" title="Upscale">
             <input type="checkbox" id="enableUpscale">
             <span>Up</span>
+          </label>
+          <label class="inline-toggle" title="Enable LoRA">
+            <input type="checkbox" id="enableLora" checked>
+            <span>LoRA</span>
           </label>
         </div>
         <div class="button-row">
@@ -88,10 +93,14 @@
         </div>
         <div class="form-group-header">Workflow Manager</div>
         <div class="form-group">
-          <label for="workflowSelect">Active Workflow:</label>
+          <label for="builtInWorkflowSelect">Built-in Workflow:</label>
+          <select id="builtInWorkflowSelect"></select>
+        </div>
+        <div class="form-group">
+          <label for="workflowSelect">Custom Workflow:</label>
           <div class="workflow-select-row">
             <select id="workflowSelect">
-              <option value="">Built-in (Qwen T2I)</option>
+              <option value="">Use Built-in</option>
             </select>
             <button id="importWorkflowBtn" class="btn-icon" title="Import Workflow">+</button>
             <button id="editMappingsBtn" class="btn-icon" title="Edit Mappings">⚙</button>

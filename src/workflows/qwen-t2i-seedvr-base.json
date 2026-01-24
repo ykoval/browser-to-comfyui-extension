@@ -1,0 +1,161 @@
+{
+  "3": {
+    "inputs": {
+      "seed": 0,
+      "steps": 40,
+      "cfg": 4,
+      "sampler_name": "er_sde",
+      "scheduler": "beta",
+      "denoise": 1,
+      "model": ["66", 0],
+      "positive": ["6", 0],
+      "negative": ["105", 0],
+      "latent_image": ["114", 0]
+    },
+    "class_type": "KSampler",
+    "_meta": {
+      "title": "KSampler"
+    }
+  },
+  "6": {
+    "inputs": {
+      "text": ["118", 1],
+      "clip": ["103", 0]
+    },
+    "class_type": "CLIPTextEncode",
+    "_meta": {
+      "title": "CLIP Text Encode (Positive Prompt)"
+    }
+  },
+  "8": {
+    "inputs": {
+      "samples": ["3", 0],
+      "vae": ["112", 0]
+    },
+    "class_type": "VAEDecode",
+    "_meta": {
+      "title": "VAE Decode"
+    }
+  },
+  "66": {
+    "inputs": {
+      "shift": 3,
+      "model": ["132", 0]
+    },
+    "class_type": "ModelSamplingAuraFlow",
+    "_meta": {
+      "title": "ModelSamplingAuraFlow"
+    }
+  },
+  "79": {
+    "inputs": {
+      "filename_prefix": "Qwen image/QwenImageT2I",
+      "images": ["8", 0]
+    },
+    "class_type": "SaveImage",
+    "_meta": {
+      "title": "Save Image"
+    }
+  },
+  "103": {
+    "inputs": {
+      "clip_name": "qwen_2.5_vl_7b_fp8_scaled.safetensors",
+      "type": "qwen_image",
+      "device": "cuda:0"
+    },
+    "class_type": "CLIPLoaderMultiGPU",
+    "_meta": {
+      "title": "CLIPLoaderMultiGPU"
+    }
+  },
+  "104": {
+    "inputs": {
+      "unet_name": "Qwen-Image-202512_fp8_e5m2.safetensors",
+      "weight_dtype": "fp8_e5m2",
+      "device": "cuda:1"
+    },
+    "class_type": "UNETLoaderMultiGPU",
+    "_meta": {
+      "title": "UNETLoaderMultiGPU"
+    }
+  },
+  "105": {
+    "inputs": {
+      "text": "dust, dots, stain",
+      "clip": ["103", 0]
+    },
+    "class_type": "CLIPTextEncode",
+    "_meta": {
+      "title": "CLIP Text Encode (Negative Prompt)"
+    }
+  },
+  "112": {
+    "inputs": {
+      "vae_name": "qwen_image_vae.safetensors",
+      "device": "cuda:1"
+    },
+    "class_type": "VAELoaderMultiGPU",
+    "_meta": {
+      "title": "VAELoaderMultiGPU"
+    }
+  },
+  "113": {
+    "inputs": {
+      "ratio": "16:9 ▭",
+      "Megapixel": 2.3,
+      "Precision": 0.2
+    },
+    "class_type": "Ratio to Size",
+    "_meta": {
+      "title": "Ratio to Size"
+    }
+  },
+  "114": {
+    "inputs": {
+      "width": ["113", 0],
+      "height": ["113", 1],
+      "batch_size": 1
+    },
+    "class_type": "EmptyLatentImage",
+    "_meta": {
+      "title": "Empty Latent Image"
+    }
+  },
+  "118": {
+    "inputs": {
+      "number_of_outputs": 2,
+      "text": "",
+      "delimiter": "custom",
+      "custom_delimiter": "===",
+      "clean_whitespace": true,
+      "ignore_empty_strings": true,
+      "start_from_index": 1
+    },
+    "class_type": "AGSoftTextSplit",
+    "_meta": {
+      "title": "AGSoftTextSplit"
+    }
+  },
+  "119": {
+    "inputs": {
+      "preview": "",
+      "previewMode": null,
+      "source": ["118", 1]
+    },
+    "class_type": "PreviewAny",
+    "_meta": {
+      "title": "Preview Any"
+    }
+  },
+  "132": {
+    "inputs": {
+      "lora_name": "qwen image\\Famegrid_Qwen_Lora_Standard_V1.5_RealSkinFix.safetensors",
+      "strength_model": 1,
+      "model": ["104", 0]
+    },
+    "class_type": "LoraLoaderModelOnly",
+    "_meta": {
+      "title": "LoraLoaderModelOnly"
+    }
+  }
+}
