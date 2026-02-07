@@ -58,16 +58,52 @@ function buildPayload(text: string, settings: ComfyUISettings) {
   };
 }
 
+// In-memory lock to prevent concurrent SeedVR submissions from race conditions
+let seedvrSubmitting = false;
+
+/**
+ * Check if another SeedVR generation is already in-flight (base or upscale stage).
+ * SeedVR must be serialized to avoid OOM from model thrashing on cuda:1.
+ * Excludes the given entryId from the check (it's the one we're deciding about).
+ */
+async function hasSeedVRInFlight(excludeEntryId?: string): Promise<boolean> {
+  const history = await getHistory();
+  return history.some(e =>
+    e.id !== excludeEntryId &&
+    e.imageStatus === 'generating' &&
+    e.workflowType === 'qwen-t2i-seedvr' &&
+    e.promptId // has actually been submitted to ComfyUI
+  );
+}
+
 /**
  * Submit workflow to ComfyUI and set up entry for alarm-based polling.
  * Returns immediately — the alarm handler does the rest.
+ *
+ * SeedVR generations are serialized: if another SeedVR is in-flight,
+ * the entry is marked 'generating' with stage 'queued' and no promptId.
+ * The alarm tick handler will submit it when the slot is free.
  */
 async function startGeneration(entryId: string, text: string): Promise<void> {
   const settings = await getSettings();
+  const isSeedVR = settings.builtInWorkflow === 'qwen-t2i-seedvr';
+
+  // SeedVR: serialize to avoid OOM from model thrashing
+  if (isSeedVR && (seedvrSubmitting || await hasSeedVRInFlight(entryId))) {
+    console.log(`[Background] SeedVR slot busy, queueing entry ${entryId.substring(0, 8)}`);
+    await updatePromptEntry(entryId, {
+      imageStatus: 'generating',
+      generationStage: 'queued',
+      workflowType: settings.builtInWorkflow,
+      pollAttempts: 0,
+    });
+    await ensurePollAlarm();
+    return;
+  }
 
   try {
+    if (isSeedVR) seedvrSubmitting = true;
     const promptId = await sendToComfyUI(buildPayload(text, settings), settings);
-    const isSeedVR = settings.builtInWorkflow === 'qwen-t2i-seedvr';
 
     await updatePromptEntry(entryId, {
       imageStatus: 'generating',
@@ -77,6 +113,7 @@ async function startGeneration(entryId: string, text: string): Promise<void> {
       pollAttempts: 0,
       workflowType: settings.builtInWorkflow,
     });
+    if (isSeedVR) seedvrSubmitting = false;
 
     await ensurePollAlarm();
     console.log(`[Background] Generation started: entry=${entryId.substring(0, 8)}, promptId=${promptId}, workflow=${settings.builtInWorkflow}`);
@@ -84,6 +121,7 @@ async function startGeneration(entryId: string, text: string): Promise<void> {
     // Quick first check after 5s (best-effort, alarm is the fallback)
     setTimeout(() => handleAlarmTick(), 5000);
   } catch (error) {
+    if (isSeedVR) seedvrSubmitting = false;
     console.error('[Background] Failed to start generation:', error);
     await updatePromptEntry(entryId, { imageStatus: 'error' });
   }
@@ -94,21 +132,45 @@ async function startGeneration(entryId: string, text: string): Promise<void> {
 async function handleAlarmTick(): Promise<void> {
   const history = await getHistory();
   const inFlight = history.filter(e => e.imageStatus === 'generating' && e.promptId);
+  const queued = history.filter(e => e.imageStatus === 'generating' && e.generationStage === 'queued' && !e.promptId);
 
-  if (inFlight.length === 0) {
+  if (inFlight.length === 0 && queued.length === 0) {
     await clearPollAlarmIfIdle();
     return;
   }
 
   const settings = await getSettings();
-  console.log(`[Background] Alarm tick: ${inFlight.length} in-flight generation(s)`);
+  console.log(`[Background] Alarm tick: ${inFlight.length} in-flight, ${queued.length} queued`);
 
+  // Process active generations
   for (const entry of inFlight) {
     try {
       await processGenerationTick(entry, settings);
     } catch (error) {
       console.error(`[Background] Tick error for ${entry.id.substring(0, 8)}:`, error);
       await updatePromptEntry(entry.id, { imageStatus: 'error', generationStage: undefined });
+    }
+  }
+
+  // Promote queued SeedVR entries if slot is free
+  // Re-read history since processGenerationTick may have completed/errored entries
+  const freshHistory = await getHistory();
+  const freshQueued = freshHistory.filter(e => e.imageStatus === 'generating' && e.generationStage === 'queued' && !e.promptId);
+  if (freshQueued.length > 0 && !await hasSeedVRInFlight()) {
+    const next = freshQueued[0]; // oldest queued entry
+    console.log(`[Background] SeedVR slot free, submitting queued entry ${next.id.substring(0, 8)}`);
+    try {
+      const promptId = await sendToComfyUI(buildPayload(next.text, settings), settings);
+      await updatePromptEntry(next.id, {
+        promptId,
+        generationStage: 'polling-base',
+        basePromptId: promptId,
+        pollAttempts: 0,
+      });
+      console.log(`[Background] Queued SeedVR started: promptId=${promptId}`);
+    } catch (error) {
+      console.error(`[Background] Failed to start queued SeedVR:`, error);
+      await updatePromptEntry(next.id, { imageStatus: 'error', generationStage: undefined });
     }
   }
 

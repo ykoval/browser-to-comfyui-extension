@@ -1,6 +1,6 @@
 type BuiltInWorkflowType = 'qwen-t2i' | 'qwen-t2i-seedvr';
 
-type GenerationStage = 'polling-base' | 'uploading-upscale' | 'polling-upscale';
+type GenerationStage = 'queued' | 'polling-base' | 'uploading-upscale' | 'polling-upscale';
 
 interface ComfyUISettings {
   serverAddress: string;

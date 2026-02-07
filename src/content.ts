@@ -286,19 +286,10 @@ class PromptAutoDetector {
 
     if (count > 0) {
       this.indicator.classList.add('generating');
-      // Show generating count on the badge (amber color via CSS)
-      const badge = this.indicator.querySelector('.comfyui-indicator-badge');
-      if (badge) {
-        badge.textContent = count.toString();
-      }
     } else {
       this.indicator.classList.remove('generating');
-      // Restore detected prompt count on the badge (pink color via CSS)
-      const badge = this.indicator.querySelector('.comfyui-indicator-badge');
-      if (badge) {
-        badge.textContent = this.detectedCount.toString();
-      }
     }
+    this.refreshBadge();
   }
 
   private removeIndicator() {
@@ -310,12 +301,27 @@ class PromptAutoDetector {
 
   private updateBadge(count: number) {
     if (!this.indicator) return;
+    this.refreshBadge();
+    // Pulse animation on new detection
+    this.indicator.classList.remove('pulse');
+    void this.indicator.offsetWidth;
+    this.indicator.classList.add('pulse');
+  }
+
+  private refreshBadge() {
+    if (!this.indicator) return;
     const badge = this.indicator.querySelector('.comfyui-indicator-badge');
-    if (badge) {
-      badge.textContent = count.toString();
-      this.indicator.classList.remove('pulse');
-      void this.indicator.offsetWidth;
-      this.indicator.classList.add('pulse');
+    if (!badge) return;
+
+    if (this.generatingCount > 0 && this.detectedCount > 0) {
+      // Both: show "detected⚡generating"
+      badge.textContent = `${this.detectedCount}⚡${this.generatingCount}`;
+    } else if (this.generatingCount > 0) {
+      // Only generating
+      badge.textContent = `⚡${this.generatingCount}`;
+    } else {
+      // Only detected (or idle)
+      badge.textContent = this.detectedCount.toString();
     }
   }
 
