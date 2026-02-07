@@ -1,6 +1,6 @@
 /// <reference types="chrome" />
 
-import { getSettings, saveSettings, getHistory, clearHistory, getActiveTab, setActiveTab, fetchComfyUIQueue, cancelPrompt, deletePromptEntry, addPromptEntry, sendToComfyUI, pollForImage, updatePromptEntry, getRelativeTime, isAutoDetectEnabled, toggleAutoDetect, extractDomain, parsePromptMetadata, buildWorkflowJsonForClipboard } from './utils';
+import { getSettings, saveSettings, getHistory, clearHistory, getActiveTab, setActiveTab, deletePromptEntry, addPromptEntry, updatePromptEntry, getRelativeTime, isAutoDetectEnabled, toggleAutoDetect, extractDomain, parsePromptMetadata, buildWorkflowJsonForClipboard } from './utils';
 import { PromptEntry, ComfyUISettings, ASPECT_RATIOS, ImportedWorkflow, MappingType, BUILT_IN_WORKFLOWS, BuiltInWorkflowType } from './types';
 import { getWorkflows, addWorkflow, deleteWorkflow, updateWorkflow, getActiveWorkflowId, setActiveWorkflowId, detectWorkflowMappings, findOutputNodeId, parseWorkflowFile, DetectedMapping } from './workflow-utils';
 
@@ -20,8 +20,6 @@ class PopupApp {
   private enableSeparatorToggle: HTMLInputElement;
   private aspectRatioSelect: HTMLSelectElement;
   private megapixelInput: HTMLInputElement;
-  private enableUpscaleToggle: HTMLInputElement;
-  private enableLoraToggle: HTMLInputElement;
   private promptStartMarkerInput: HTMLInputElement;
   private promptEndMarkerInput: HTMLInputElement;
   private saveSettingsBtn: HTMLButtonElement;
@@ -53,7 +51,6 @@ class PopupApp {
   private currentMappings: DetectedMapping[] = [];
   private currentDomain: string = '';
   private currentTabId: number | null = null;
-  private queueTimer: number | null = null;
 
   constructor() {
     this.promptInput = document.getElementById('promptInput') as HTMLTextAreaElement;
@@ -71,8 +68,6 @@ class PopupApp {
     this.enableSeparatorToggle = document.getElementById('enableSeparator') as HTMLInputElement;
     this.aspectRatioSelect = document.getElementById('aspectRatio') as HTMLSelectElement;
     this.megapixelInput = document.getElementById('megapixel') as HTMLInputElement;
-    this.enableUpscaleToggle = document.getElementById('enableUpscale') as HTMLInputElement;
-    this.enableLoraToggle = document.getElementById('enableLora') as HTMLInputElement;
     this.promptStartMarkerInput = document.getElementById('promptStartMarker') as HTMLInputElement;
     this.promptEndMarkerInput = document.getElementById('promptEndMarker') as HTMLInputElement;
     this.saveSettingsBtn = document.getElementById('saveSettingsBtn') as HTMLButtonElement;
@@ -133,11 +128,6 @@ class PopupApp {
     this.updateUI();
     this.bindEvents();
     this.setupStorageListener();
-    this.syncWithComfyUIQueue();
-    this.queueTimer = window.setInterval(() => this.syncWithComfyUIQueue(), 4000);
-    window.addEventListener('unload', () => {
-      if (this.queueTimer !== null) window.clearInterval(this.queueTimer);
-    });
   }
 
   private async initWorkflowSelect() {
@@ -200,80 +190,6 @@ class PopupApp {
     document.getElementById(`${activeTab}-tab`)?.classList.add('active');
   }
 
-  private async syncWithComfyUIQueue() {
-    try {
-      const queue = await fetchComfyUIQueue(this.settings);
-      const runningIds = new Set(queue.running.map(q => q.promptId));
-      const pendingIds = new Set(queue.pending.map(q => q.promptId));
-
-      let updated = false;
-      for (const entry of this.history) {
-        if (entry.imageStatus === 'generating' && entry.promptId) {
-          if (!runningIds.has(entry.promptId) && !pendingIds.has(entry.promptId)) {
-            const imageUrl = await this.checkHistoryForImage(entry.promptId);
-            if (imageUrl) {
-              await updatePromptEntry(entry.id, { imageStatus: 'done', imageUrl });
-            } else {
-              await updatePromptEntry(entry.id, { imageStatus: 'error' });
-            }
-            updated = true;
-          }
-        }
-      }
-      if (updated) await this.refreshHistory();
-    } catch {
-      // ComfyUI server not available - silently ignore
-    }
-  }
-
-  private async checkHistoryForImage(promptId: string): Promise<string | null> {
-    const historyUrl = `${this.settings.serverAddress}/history/${promptId}`;
-    try {
-      const response = await fetch(historyUrl);
-      if (!response.ok) return null;
-      const data = await response.json();
-      const promptHistory = data[promptId];
-      if (!promptHistory?.outputs) return null;
-
-      let saveImageNode = null;
-
-      // Check active workflow's output node first
-      const activeWorkflowId = await getActiveWorkflowId();
-      if (activeWorkflowId) {
-        const workflow = this.workflows.find(w => w.id === activeWorkflowId);
-        if (workflow?.outputNodeId) {
-          saveImageNode = promptHistory.outputs[workflow.outputNodeId];
-        }
-      }
-
-      // Fall back to hardcoded nodes for built-in workflow
-      if (!saveImageNode?.images?.[0]) {
-        const upscaledNode = promptHistory.outputs['81'];
-        const regularNode = promptHistory.outputs['79'];
-        saveImageNode = upscaledNode?.images?.[0] ? upscaledNode : regularNode;
-      }
-
-      // Last resort: search all output nodes
-      if (!saveImageNode?.images?.[0]) {
-        for (const nodeId of Object.keys(promptHistory.outputs)) {
-          const node = promptHistory.outputs[nodeId];
-          if (node?.images?.[0]) {
-            saveImageNode = node;
-            break;
-          }
-        }
-      }
-
-      if (saveImageNode?.images?.[0]) {
-        const img = saveImageNode.images[0];
-        return `${this.settings.serverAddress}/view?filename=${encodeURIComponent(img.filename)}&subfolder=${encodeURIComponent(img.subfolder)}&type=${img.type}`;
-      }
-    } catch (e) {
-      console.error('Check history error:', e);
-    }
-    return null;
-  }
-
   private updateUI() {
     this.autoSendToggle.checked = this.settings.autoSend;
     this.serverAddressInput.value = this.settings.serverAddress;
@@ -284,8 +200,6 @@ class PopupApp {
     this.enableSeparatorToggle.checked = this.settings.enableSeparator;
     this.aspectRatioSelect.value = this.settings.aspectRatio;
     this.megapixelInput.value = String(this.settings.megapixel);
-    this.enableUpscaleToggle.checked = this.settings.enableUpscale;
-    this.enableLoraToggle.checked = this.settings.enableLora !== false; // Default to true
     this.builtInWorkflowSelect.value = this.settings.builtInWorkflow || 'qwen-t2i';
     this.promptStartMarkerInput.value = this.settings.promptStartMarker;
     this.promptEndMarkerInput.value = this.settings.promptEndMarker;
@@ -319,8 +233,6 @@ class PopupApp {
     this.aspectRatioSelect.addEventListener('change', this.handlePromptControlChange.bind(this));
     this.megapixelInput.addEventListener('change', this.handlePromptControlChange.bind(this));
     this.stepsInput.addEventListener('change', this.handlePromptControlChange.bind(this));
-    this.enableUpscaleToggle.addEventListener('change', this.handlePromptControlChange.bind(this));
-    this.enableLoraToggle.addEventListener('change', this.handlePromptControlChange.bind(this));
     this.autoDetectToggle.addEventListener('change', this.handleAutoDetectToggle.bind(this));
     this.scanPageBtn.addEventListener('click', this.handleScanPage.bind(this));
     this.togglePasteBtn.addEventListener('click', this.handleTogglePaste.bind(this));
@@ -471,30 +383,7 @@ class PopupApp {
     this.refreshStatusesBtn.textContent = '...';
 
     try {
-      const stuckItems = this.history.filter(
-        entry => entry.imageStatus === 'generating' || entry.imageStatus === 'pending'
-      );
-
-      if (stuckItems.length === 0) {
-        return;
-      }
-
-      for (const entry of stuckItems) {
-        if (entry.promptId) {
-          const imageUrl = await this.checkHistoryForImage(entry.promptId);
-          if (imageUrl) {
-            await updatePromptEntry(entry.id, { imageStatus: 'done', imageUrl });
-          } else {
-            await updatePromptEntry(entry.id, { imageStatus: 'error' });
-          }
-        } else if (entry.imageStatus === 'pending') {
-          // Pending items without promptId - leave as pending
-        } else {
-          // Generating without promptId - mark as error
-          await updatePromptEntry(entry.id, { imageStatus: 'error' });
-        }
-      }
-
+      // Re-read history from storage (background service worker handles actual status updates)
       await this.refreshHistory();
     } catch (error) {
       console.error('Refresh statuses error:', error);
@@ -516,8 +405,6 @@ class PopupApp {
     this.settings.aspectRatio = this.aspectRatioSelect.value;
     this.settings.megapixel = parseFloat(this.megapixelInput.value) || 2.5;
     this.settings.steps = parseInt(this.stepsInput.value) || 20;
-    this.settings.enableUpscale = this.enableUpscaleToggle.checked;
-    this.settings.enableLora = this.enableLoraToggle.checked;
     await saveSettings(this.settings);
   }
 
@@ -541,8 +428,6 @@ class PopupApp {
     this.settings.enableSeparator = this.enableSeparatorToggle.checked;
     this.settings.aspectRatio = this.aspectRatioSelect.value;
     this.settings.megapixel = parseFloat(this.megapixelInput.value) || 2.5;
-    this.settings.enableUpscale = this.enableUpscaleToggle.checked;
-    this.settings.enableLora = this.enableLoraToggle.checked;
     this.settings.builtInWorkflow = this.builtInWorkflowSelect.value as BuiltInWorkflowType;
     this.settings.promptStartMarker = this.promptStartMarkerInput.value || '[PROMPT START]';
     this.settings.promptEndMarker = this.promptEndMarkerInput.value || '[PROMPT END]';
@@ -626,8 +511,6 @@ class PopupApp {
       cfg: this.settings.cfg,
       aspectRatio: aspectRatio,
       megapixel: this.settings.megapixel,
-      enableUpscale: this.settings.enableUpscale,
-      enableLora: this.settings.enableLora !== false,
     };
   }
 
@@ -636,27 +519,20 @@ class PopupApp {
     if (!prompt) return;
 
     this.generateBtn.disabled = true;
-    this.generateBtn.textContent = 'Generating...';
-
-    const entry = await addPromptEntry(prompt);
-    await this.refreshHistory();
+    this.generateBtn.textContent = 'Sending...';
 
     try {
-      const promptId = await sendToComfyUI(this.buildPayload(entry.text), this.settings);
-      await updatePromptEntry(entry.id, { imageStatus: 'generating', promptId });
+      const entry = await addPromptEntry(prompt);
       await this.refreshHistory();
 
-      const imageUrl = await pollForImage(promptId, this.settings, this.settings.enableUpscale);
-      if (imageUrl) {
-        await updatePromptEntry(entry.id, { imageStatus: 'done', imageUrl });
-      } else {
-        await updatePromptEntry(entry.id, { imageStatus: 'error' });
-      }
-      await this.refreshHistory();
+      // Delegate generation to background service worker (alarm-based polling)
+      chrome.runtime.sendMessage({
+        type: 'START_GENERATION',
+        entryId: entry.id,
+        text: entry.text,
+      });
     } catch (error) {
-      console.error('Generation failed:', error);
-      await updatePromptEntry(entry.id, { imageStatus: 'error' });
-      await this.refreshHistory();
+      console.error('Failed to start generation:', error);
     } finally {
       this.generateBtn.disabled = false;
       this.generateBtn.textContent = 'Generate';
@@ -693,28 +569,15 @@ class PopupApp {
     const entry = this.history.find(e => e.id === entryId);
     if (!entry) return;
 
-    const newCount = (entry.generationCount || 0) + 1;
+    console.log(`[Popup] Requesting regeneration for entry ${entryId.substring(0, 8)}`);
 
-    try {
-      await updatePromptEntry(entryId, { imageStatus: 'generating', generationCount: newCount });
-      await this.refreshHistory();
-
-      const promptId = await sendToComfyUI(this.buildPayload(entry.text), this.settings);
-      await updatePromptEntry(entryId, { promptId });
-      await this.refreshHistory();
-
-      const imageUrl = await pollForImage(promptId, this.settings, this.settings.enableUpscale);
-      if (imageUrl) {
-        await updatePromptEntry(entryId, { imageStatus: 'done', imageUrl });
-      } else {
-        await updatePromptEntry(entryId, { imageStatus: 'error' });
-      }
-      await this.refreshHistory();
-    } catch (error) {
-      console.error('Send failed:', error);
-      await updatePromptEntry(entryId, { imageStatus: 'error' });
-      await this.refreshHistory();
-    }
+    // Delegate generation to background service worker (alarm-based polling)
+    chrome.runtime.sendMessage({
+      type: 'START_GENERATION',
+      entryId: entry.id,
+      text: entry.text,
+      isRegenerate: true,
+    });
   }
 
   private renderHistory() {
@@ -741,7 +604,10 @@ class PopupApp {
 
       const meta = document.createElement('div');
       meta.className = 'meta';
-      meta.innerHTML = `<span class="timestamp">${getRelativeTime(entry.createdAt)}</span> · <span class="status status-${entry.imageStatus}">${entry.imageStatus}</span>`;
+      const stageLabel = entry.imageStatus === 'generating' && entry.generationStage
+        ? `${entry.imageStatus} (${entry.generationStage})`
+        : entry.imageStatus;
+      meta.innerHTML = `<span class="timestamp">${getRelativeTime(entry.createdAt)}</span> · <span class="status status-${entry.imageStatus}">${stageLabel}</span>`;
 
       content.appendChild(text);
       content.appendChild(meta);
@@ -781,10 +647,17 @@ class PopupApp {
 
   private async handleCancelGeneration(entry: PromptEntry) {
     if (entry.promptId) {
-      await cancelPrompt(entry.promptId, this.settings);
+      // Delegate cancel to background service worker
+      chrome.runtime.sendMessage({
+        type: 'CANCEL_GENERATION',
+        entryId: entry.id,
+        promptId: entry.promptId,
+      });
+    } else {
+      // No promptId yet — just mark as error locally
+      await updatePromptEntry(entry.id, { imageStatus: 'error' });
+      await this.refreshHistory();
     }
-    await updatePromptEntry(entry.id, { imageStatus: 'error' });
-    await this.refreshHistory();
   }
 
   private async handleDeleteEntry(entryId: string) {

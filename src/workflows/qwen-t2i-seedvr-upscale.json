@@ -11,7 +11,7 @@
   },
   "120": {
     "inputs": {
-      "anything": ["8", 0]
+      "anything": ["204", 0]
     },
     "class_type": "easy cleanGpuUsed",
     "_meta": {
@@ -32,7 +32,7 @@
   "122": {
     "inputs": {
       "model": "seedvr2_ema_7b_fp16.safetensors",
-      "device": "cuda:0",
+      "device": "cuda:1",
       "num_frames": 32,
       "load_tiling": true,
       "offload": "cpu",
@@ -47,7 +47,7 @@
   "123": {
     "inputs": {
       "model": "ema_vae_fp16.safetensors",
-      "device": "cuda:0",
+      "device": "cuda:1",
       "load_encoder": true,
       "encoder_tile_size": 1024,
       "encoder_tile_overlap": 128,

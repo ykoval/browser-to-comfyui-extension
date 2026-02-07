@@ -40,7 +40,7 @@
   "66": {
     "inputs": {
       "shift": 3,
-      "model": ["132", 0]
+      "model": ["104", 0]
     },
     "class_type": "ModelSamplingAuraFlow",
     "_meta": {
@@ -50,7 +50,7 @@
   "79": {
     "inputs": {
       "filename_prefix": "Qwen image/QwenImageT2I",
-      "images": ["8", 0]
+      "images": ["204", 0]
     },
     "class_type": "SaveImage",
     "_meta": {
@@ -99,26 +99,19 @@
       "title": "VAELoaderMultiGPU"
     }
   },
-  "113": {
-    "inputs": {
-      "ratio": "16:9 ▭",
-      "Megapixel": 2.3,
-      "Precision": 0.2
-    },
-    "class_type": "Ratio to Size",
-    "_meta": {
-      "title": "Ratio to Size"
-    }
-  },
   "114": {
     "inputs": {
-      "width": ["113", 0],
-      "height": ["113", 1],
+      "size_mode": "Megapixels",
+      "preset": "Landscape - 1792x1008 (16:9)",
+      "width": 2128,
+      "height": 1232,
+      "megapixels": 2.5,
+      "aspect_ratio": "16:9",
       "batch_size": 1
     },
-    "class_type": "EmptyLatentImage",
+    "class_type": "AGSoft_Empty_Latent_QwenImage",
     "_meta": {
-      "title": "Empty Latent Image"
+      "title": "AGSoft Empty Latent QwenImage"
     }
   },
   "118": {
@@ -147,15 +140,26 @@
       "title": "Preview Any"
     }
   },
-  "132": {
+  "203": {
     "inputs": {
-      "lora_name": "qwen image\\Famegrid_Qwen_Lora_Standard_V1.5_RealSkinFix.safetensors",
-      "strength_model": 1,
-      "model": ["104", 0]
+      "images": ["8", 0],
+      "size": 2
     },
-    "class_type": "LoraLoaderModelOnly",
+    "class_type": "Image Median Blur",
     "_meta": {
-      "title": "LoraLoaderModelOnly"
+      "title": "Median Blur"
+    }
+  },
+  "204": {
+    "inputs": {
+      "image": ["203", 0],
+      "smooth": 8,
+      "threshold": -10,
+      "opacity": 50
+    },
+    "class_type": "LayerFilter: SkinBeauty",
+    "_meta": {
+      "title": "SkinBeauty"
     }
   }
 }

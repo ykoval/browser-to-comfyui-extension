@@ -1,0 +1,153 @@
+{
+  "81": {
+    "inputs": {
+      "filename_prefix": "Qwen image/QwenImageT2I_UP",
+      "images": ["127", 0]
+    },
+    "class_type": "SaveImage",
+    "_meta": {
+      "title": "Save Image (Upscaled)"
+    }
+  },
+  "200": {
+    "inputs": {
+      "image": "",
+      "upload": "image"
+    },
+    "class_type": "LoadImage",
+    "_meta": {
+      "title": "Load Image (Base Output)"
+    }
+  },
+  "120": {
+    "inputs": {
+      "anything": ["200", 0]
+    },
+    "class_type": "easy cleanGpuUsed",
+    "_meta": {
+      "title": "Easy Clean GPU"
+    }
+  },
+  "121": {
+    "inputs": {
+      "upscale_method": "nearest-exact",
+      "scale_by": 0.5,
+      "image": ["120", 0]
+    },
+    "class_type": "ImageScaleBy",
+    "_meta": {
+      "title": "Upscale Image By"
+    }
+  },
+  "122": {
+    "inputs": {
+      "model": "seedvr2_ema_7b_fp16.safetensors",
+      "device": "cuda:1",
+      "num_frames": 32,
+      "load_tiling": true,
+      "offload": "cpu",
+      "enable_model_cpu_offload": true,
+      "attention_mode": "sdpa"
+    },
+    "class_type": "SeedVR2LoadDiTModel",
+    "_meta": {
+      "title": "SeedVR2LoadDiTModel"
+    }
+  },
+  "123": {
+    "inputs": {
+      "model": "ema_vae_fp16.safetensors",
+      "device": "cuda:1",
+      "load_encoder": true,
+      "encoder_tile_size": 1024,
+      "encoder_tile_overlap": 128,
+      "load_decoder": true,
+      "decoder_tile_size": 1024,
+      "decoder_tile_overlap": 128,
+      "compile": "false",
+      "offload": "cpu",
+      "enable_model_cpu_offload": false
+    },
+    "class_type": "SeedVR2LoadVAEModel",
+    "_meta": {
+      "title": "SeedVR2LoadVAEModel"
+    }
+  },
+  "124": {
+    "inputs": {
+      "seed": 0,
+      "batch_size": 1,
+      "upscale_mode": "fixed",
+      "max_resolution": 4096,
+      "resolution": 2160,
+      "fixed_height": 2160,
+      "fixed_width": 3840,
+      "uniform_batch_size": 1,
+      "steps": 5,
+      "i2i_mode": false,
+      "color_correction": "lab",
+      "noise_seed_offset": 0,
+      "tile_x_offset": 0,
+      "tile_y_offset": 0,
+      "offload": "cpu",
+      "enable_model_cpu_offload": false,
+      "image": ["121", 0],
+      "dit": ["122", 0],
+      "vae": ["123", 0]
+    },
+    "class_type": "SeedVR2VideoUpscaler",
+    "_meta": {
+      "title": "SeedVR2VideoUpscaler"
+    }
+  },
+  "125": {
+    "inputs": {
+      "soft_empty_cache": true,
+      "empty_cuda_cache": true,
+      "offload_model": true,
+      "offload_cache": true,
+      "anything": ["124", 0]
+    },
+    "class_type": "VRAMCleanup",
+    "_meta": {
+      "title": "VRAMCleanup (Post-Upscale)"
+    }
+  },
+  "126": {
+    "inputs": {
+      "soft_empty_cache": true,
+      "empty_cuda_cache": true,
+      "gc_collect": true,
+      "clean_dlls": false,
+      "retry_times": 3,
+      "clean_processes": false,
+      "clean_file_cache": false,
+      "wait_seconds": 3,
+      "anything": ["125", 0]
+    },
+    "class_type": "RAMCleanup",
+    "_meta": {
+      "title": "RAMCleanup (Post-Upscale)"
+    }
+  },
+  "127": {
+    "inputs": {
+      "strength": 100,
+      "brightness": 0,
+      "contrast": 0,
+      "saturation": -10,
+      "hue": 0,
+      "red": 0,
+      "green": 0,
+      "blue": 0,
+      "cyan_red": 0,
+      "magenta_green": 0,
+      "mode": "RGB",
+      "image": ["126", 0]
+    },
+    "class_type": "LayerColor: AutoAdjustV2",
+    "_meta": {
+      "title": "LayerColor: AutoAdjustV2"
+    }
+  }
+}

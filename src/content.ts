@@ -15,6 +15,7 @@ class PromptAutoDetector {
   private scanDebounceTimer: ReturnType<typeof setTimeout> | null = null;
   private isDragging: boolean = false;
   private dragOffset: { x: number; y: number } = { x: 0, y: 0 };
+  private generatingCount: number = 0;
 
   constructor() {
     this.setupMessageListener();
@@ -35,21 +36,23 @@ class PromptAutoDetector {
 
   private start(settings: AutoDetectSettings) {
     this.settings = settings;
-    
+
     if (this.isActive) {
       this.scanPage();
       return;
     }
-    
+
     this.isActive = true;
     this.createIndicator();
     this.scanPage();
     this.startObserver();
+    this.startGenerationListener();
   }
 
   private stop() {
     this.isActive = false;
     this.stopObserver();
+    this.stopGenerationListener();
     this.removeIndicator();
     this.detectedPrompts.clear();
     this.detectedCount = 0;
@@ -129,12 +132,44 @@ class PromptAutoDetector {
       #comfyui-auto-detect-indicator.scanning .comfyui-indicator-icon {
         animation: comfyui-spin 1s linear infinite;
       }
+      #comfyui-auto-detect-indicator.generating .comfyui-indicator-badge {
+        background: #ffaa00;
+        box-shadow: 0 2px 8px rgba(255, 170, 0, 0.5);
+      }
+      #comfyui-auto-detect-indicator.generating {
+        border-color: transparent;
+        background-clip: padding-box;
+      }
+      #comfyui-auto-detect-indicator.generating::before {
+        content: '';
+        position: absolute;
+        inset: -3px;
+        border-radius: 50%;
+        background: conic-gradient(from 0deg, #00ff88, #00ccff, #ff2e97, #ffaa00, #00ff88);
+        animation: comfyui-border-spin 1.5s linear infinite;
+        z-index: -1;
+      }
+      #comfyui-auto-detect-indicator.generating::after {
+        content: '';
+        position: absolute;
+        inset: -3px;
+        border-radius: 50%;
+        background: conic-gradient(from 0deg, #00ff88, #00ccff, #ff2e97, #ffaa00, #00ff88);
+        animation: comfyui-border-spin 1.5s linear infinite;
+        filter: blur(8px);
+        opacity: 0.6;
+        z-index: -2;
+      }
       @keyframes comfyui-pulse {
         0% { transform: scale(1); }
         50% { transform: scale(1.3); background: #00ff88; }
         100% { transform: scale(1); }
       }
       @keyframes comfyui-spin {
+        from { transform: rotate(0deg); }
+        to { transform: rotate(360deg); }
+      }
+      @keyframes comfyui-border-spin {
         from { transform: rotate(0deg); }
         to { transform: rotate(360deg); }
       }
@@ -211,6 +246,59 @@ class PromptAutoDetector {
     setTimeout(() => {
       this.indicator?.classList.remove('scanning');
     }, 500);
+  }
+
+  private storageChangeHandler: ((changes: { [key: string]: chrome.storage.StorageChange }) => void) | null = null;
+
+  private startGenerationListener() {
+    // Check initial state
+    this.checkGenerationStatus();
+
+    // Listen for storage changes to promptHistory
+    this.storageChangeHandler = (changes: { [key: string]: chrome.storage.StorageChange }) => {
+      if (changes.promptHistory) {
+        const history = changes.promptHistory.newValue || [];
+        const count = history.filter((e: { imageStatus: string }) => e.imageStatus === 'generating').length;
+        this.setGeneratingState(count);
+      }
+    };
+    chrome.storage.local.onChanged.addListener(this.storageChangeHandler);
+  }
+
+  private stopGenerationListener() {
+    if (this.storageChangeHandler) {
+      chrome.storage.local.onChanged.removeListener(this.storageChangeHandler);
+      this.storageChangeHandler = null;
+    }
+  }
+
+  private checkGenerationStatus() {
+    chrome.storage.local.get('promptHistory', (result) => {
+      const history = result.promptHistory || [];
+      const count = history.filter((e: { imageStatus: string }) => e.imageStatus === 'generating').length;
+      this.setGeneratingState(count);
+    });
+  }
+
+  private setGeneratingState(count: number) {
+    if (!this.indicator) return;
+    this.generatingCount = count;
+
+    if (count > 0) {
+      this.indicator.classList.add('generating');
+      // Show generating count on the badge (amber color via CSS)
+      const badge = this.indicator.querySelector('.comfyui-indicator-badge');
+      if (badge) {
+        badge.textContent = count.toString();
+      }
+    } else {
+      this.indicator.classList.remove('generating');
+      // Restore detected prompt count on the badge (pink color via CSS)
+      const badge = this.indicator.querySelector('.comfyui-indicator-badge');
+      if (badge) {
+        badge.textContent = this.detectedCount.toString();
+      }
+    }
   }
 
   private removeIndicator() {

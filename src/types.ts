@@ -1,5 +1,7 @@
 type BuiltInWorkflowType = 'qwen-t2i' | 'qwen-t2i-seedvr';
 
+type GenerationStage = 'polling-base' | 'uploading-upscale' | 'polling-upscale';
+
 interface ComfyUISettings {
   serverAddress: string;
   apiPath: string;
@@ -14,8 +16,6 @@ interface ComfyUISettings {
   enableSeparator: boolean;
   aspectRatio: string;
   megapixel: number;
-  enableUpscale: boolean;
-  enableLora: boolean;
   promptStartMarker: string;
   promptEndMarker: string;
 }
@@ -28,6 +28,11 @@ interface PromptEntry {
   imageUrl?: string;
   promptId?: string;
   generationCount?: number;
+  // Alarm-based orchestration fields (set by background service worker)
+  generationStage?: GenerationStage;
+  basePromptId?: string;
+  pollAttempts?: number;
+  workflowType?: BuiltInWorkflowType;
 }
 
 interface ComfyUIPayload {
@@ -38,8 +43,6 @@ interface ComfyUIPayload {
   cfg: number;
   aspectRatio: string;
   megapixel: number;
-  enableUpscale: boolean;
-  enableLora: boolean;
 }
 
 interface ComfyUIResponse {
@@ -116,13 +119,11 @@ const DEFAULT_SETTINGS: ComfyUISettings = {
   enableSeparator: true,
   aspectRatio: '16:9 ▭',
   megapixel: 2.5,
-  enableUpscale: false,
-  enableLora: true,
   promptStartMarker: '[PROMPT START]',
   promptEndMarker: '[PROMPT END]',
 };
 
 const MAX_HISTORY_ENTRIES = 50;
 
-export type { ComfyUISettings, PromptEntry, ComfyUIPayload, ComfyUIResponse, MappingType, WorkflowMapping, ImportedWorkflow, WorkflowNode, BuiltInWorkflowType };
+export type { ComfyUISettings, PromptEntry, ComfyUIPayload, ComfyUIResponse, MappingType, WorkflowMapping, ImportedWorkflow, WorkflowNode, BuiltInWorkflowType, GenerationStage };
 export { STORAGE_KEYS, DEFAULT_SETTINGS, MAX_HISTORY_ENTRIES, ASPECT_RATIOS, BUILT_IN_WORKFLOWS };
