@@ -1,6 +1,12 @@
 type BuiltInWorkflowType = 'qwen-t2i' | 'qwen-t2i-seedvr';
 
-type GenerationStage = 'queued' | 'polling-base' | 'uploading-upscale' | 'polling-upscale';
+type GenerationStage = 'queued' | 'polling';
+
+interface ImageInfo {
+  filename: string;
+  subfolder: string;
+  type: string;
+}
 
 interface ComfyUISettings {
   serverAddress: string;
@@ -24,15 +30,21 @@ interface PromptEntry {
   id: string;
   text: string;
   createdAt: number;
+  // Base generation
   imageStatus: 'pending' | 'generating' | 'done' | 'error';
-  imageUrl?: string;
+  imageUrl?: string;            // Best available image URL (base or upscaled)
+  baseImageUrl?: string;        // Node 79 output URL
+  baseImageInfo?: ImageInfo;    // Node 79 file info (for upscale submission)
   promptId?: string;
   generationCount?: number;
-  // Alarm-based orchestration fields (set by background service worker)
   generationStage?: GenerationStage;
   basePromptId?: string;
   pollAttempts?: number;
   workflowType?: BuiltInWorkflowType;
+  // Upscale (user-triggered)
+  upscaleStatus?: 'upscaling' | 'done' | 'error';
+  upscalePromptId?: string;
+  upscalePollAttempts?: number;
 }
 
 interface ComfyUIPayload {
@@ -125,5 +137,5 @@ const DEFAULT_SETTINGS: ComfyUISettings = {
 
 const MAX_HISTORY_ENTRIES = 50;
 
-export type { ComfyUISettings, PromptEntry, ComfyUIPayload, ComfyUIResponse, MappingType, WorkflowMapping, ImportedWorkflow, WorkflowNode, BuiltInWorkflowType, GenerationStage };
+export type { ComfyUISettings, PromptEntry, ComfyUIPayload, ComfyUIResponse, MappingType, WorkflowMapping, ImportedWorkflow, WorkflowNode, BuiltInWorkflowType, GenerationStage, ImageInfo };
 export { STORAGE_KEYS, DEFAULT_SETTINGS, MAX_HISTORY_ENTRIES, ASPECT_RATIOS, BUILT_IN_WORKFLOWS };

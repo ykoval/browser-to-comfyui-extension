@@ -1,14 +1,13 @@
 /// <reference types="chrome" />
 
-import { getSettings, getHistory, addPromptEntry, sendToComfyUI, sendSeedVRUpscale, cancelPrompt, updatePromptEntry, isPromptDuplicate, checkHistoryForUpscaledImage, checkHistoryForBaseImage, parsePromptMetadata } from './utils';
+import { getSettings, getHistory, addPromptEntry, sendToComfyUI, buildAndSendUpscale, cancelPrompt, updatePromptEntry, isPromptDuplicate, checkHistoryForUpscaledImage, checkHistoryForBaseImage, parsePromptMetadata } from './utils';
 import type { ComfyUISettings, PromptEntry } from './types';
 
 // --- Alarm-based polling constants ---
 const POLL_ALARM_NAME = 'poll-generations';
 const POLL_INTERVAL_MINUTES = 0.5; // 30 seconds (Chrome minimum for alarms)
-const MAX_POLL_TICKS_STANDARD = 12; // 12 × 30s = 6 minutes
-const MAX_POLL_TICKS_SEEDVR_BASE = 6; // 6 × 30s = 3 minutes
-const MAX_POLL_TICKS_SEEDVR_UPSCALE = 12; // 12 × 30s = 6 minutes
+const MAX_POLL_TICKS_BASE = 12;    // 12 × 30s = 6 minutes (base generation)
+const MAX_POLL_TICKS_UPSCALE = 12; // 12 × 30s = 6 minutes (upscale)
 
 // --- Context menu setup ---
 chrome.runtime.onInstalled.addListener(() => {
@@ -36,10 +35,10 @@ async function ensurePollAlarm(): Promise<void> {
 
 async function clearPollAlarmIfIdle(): Promise<void> {
   const history = await getHistory();
-  const hasInFlight = history.some(e => e.imageStatus === 'generating');
+  const hasInFlight = history.some(e => e.imageStatus === 'generating' || e.upscaleStatus === 'upscaling');
   if (!hasInFlight) {
     await chrome.alarms.clear(POLL_ALARM_NAME);
-    console.log('[Background] Cleared poll alarm (no in-flight generations)');
+    console.log('[Background] Cleared poll alarm (no in-flight work)');
   }
 }
 
@@ -49,7 +48,7 @@ function buildPayload(text: string, settings: ComfyUISettings) {
   const metadata = parsePromptMetadata(text);
   return {
     prompt: metadata.cleanPrompt,
-    negativePrompt: settings.negativePrompt,
+    negativePrompt: metadata.negativePrompt || settings.negativePrompt,
     seed: settings.seed,
     steps: settings.steps,
     cfg: settings.cfg,
@@ -108,7 +107,7 @@ async function startGeneration(entryId: string, text: string): Promise<void> {
     await updatePromptEntry(entryId, {
       imageStatus: 'generating',
       promptId,
-      generationStage: isSeedVR ? 'polling-base' : 'polling-upscale',
+      generationStage: 'polling',
       basePromptId: promptId,
       pollAttempts: 0,
       workflowType: settings.builtInWorkflow,
@@ -133,16 +132,18 @@ async function handleAlarmTick(): Promise<void> {
   const history = await getHistory();
   const inFlight = history.filter(e => e.imageStatus === 'generating' && e.promptId);
   const queued = history.filter(e => e.imageStatus === 'generating' && e.generationStage === 'queued' && !e.promptId);
+  const upscaleActive = history.filter(e => e.upscaleStatus === 'upscaling' && e.upscalePromptId);
+  const upscaleQueued = history.filter(e => e.upscaleStatus === 'upscaling' && !e.upscalePromptId);
 
-  if (inFlight.length === 0 && queued.length === 0) {
+  if (inFlight.length === 0 && queued.length === 0 && upscaleActive.length === 0 && upscaleQueued.length === 0) {
     await clearPollAlarmIfIdle();
     return;
   }
 
   const settings = await getSettings();
-  console.log(`[Background] Alarm tick: ${inFlight.length} in-flight, ${queued.length} queued`);
+  console.log(`[Background] Alarm tick: ${inFlight.length} generating, ${queued.length} queued, ${upscaleActive.length} upscaling, ${upscaleQueued.length} upscale-queued`);
 
-  // Process active generations
+  // Process active base generations — poll node 79
   for (const entry of inFlight) {
     try {
       await processGenerationTick(entry, settings);
@@ -152,18 +153,27 @@ async function handleAlarmTick(): Promise<void> {
     }
   }
 
-  // Promote queued SeedVR entries if slot is free
-  // Re-read history since processGenerationTick may have completed/errored entries
+  // Process active upscales — poll node 81
+  for (const entry of upscaleActive) {
+    try {
+      await processUpscaleTick(entry, settings);
+    } catch (error) {
+      console.error(`[Background] Upscale tick error for ${entry.id.substring(0, 8)}:`, error);
+      await updatePromptEntry(entry.id, { upscaleStatus: 'error' });
+    }
+  }
+
+  // Promote queued SeedVR base entries if slot is free
   const freshHistory = await getHistory();
   const freshQueued = freshHistory.filter(e => e.imageStatus === 'generating' && e.generationStage === 'queued' && !e.promptId);
   if (freshQueued.length > 0 && !await hasSeedVRInFlight()) {
-    const next = freshQueued[0]; // oldest queued entry
+    const next = freshQueued[0];
     console.log(`[Background] SeedVR slot free, submitting queued entry ${next.id.substring(0, 8)}`);
     try {
       const promptId = await sendToComfyUI(buildPayload(next.text, settings), settings);
       await updatePromptEntry(next.id, {
         promptId,
-        generationStage: 'polling-base',
+        generationStage: 'polling',
         basePromptId: promptId,
         pollAttempts: 0,
       });
@@ -174,99 +184,128 @@ async function handleAlarmTick(): Promise<void> {
     }
   }
 
+  // Promote queued upscales — only when no base generations are in-flight
+  // This prevents model thrashing (QwenImage must fully unload before upscale models load)
+  if (!await hasBaseGenerationsInFlight()) {
+    const freshHistory2 = await getHistory();
+    const pendingUpscales = freshHistory2.filter(e => e.upscaleStatus === 'upscaling' && !e.upscalePromptId);
+    if (pendingUpscales.length > 0) {
+      const next = pendingUpscales[0];
+      console.log(`[Background] Base batch done, submitting queued upscale ${next.id.substring(0, 8)}`);
+      await submitUpscale(next, settings);
+    }
+  }
+
   await clearPollAlarmIfIdle();
 }
 
+/**
+ * Base generation polling — check node 79 for base image.
+ * When ready, mark done with base image URL. No auto-upscale.
+ */
 async function processGenerationTick(entry: PromptEntry, settings: ComfyUISettings): Promise<void> {
   const attempts = (entry.pollAttempts || 0) + 1;
-  const stage = entry.generationStage || 'polling-upscale';
 
-  // Determine max attempts based on stage
-  let maxAttempts: number;
-  if (stage === 'polling-base') {
-    maxAttempts = MAX_POLL_TICKS_SEEDVR_BASE;
-  } else if (stage === 'polling-upscale' && entry.workflowType === 'qwen-t2i-seedvr') {
-    maxAttempts = MAX_POLL_TICKS_SEEDVR_UPSCALE;
-  } else {
-    maxAttempts = MAX_POLL_TICKS_STANDARD;
-  }
-
-  if (attempts > maxAttempts) {
-    console.log(`[Background] Timeout for ${entry.id.substring(0, 8)} at stage ${stage} (${attempts} ticks)`);
+  if (attempts > MAX_POLL_TICKS_BASE) {
+    console.log(`[Background] Base timeout for ${entry.id.substring(0, 8)} (${attempts} ticks)`);
     await updatePromptEntry(entry.id, { imageStatus: 'error', generationStage: undefined });
     return;
   }
 
-  switch (stage) {
-    case 'polling-base': {
-      // SeedVR stage 1: check node 79 for base image
-      const result = await checkHistoryForBaseImage(entry.promptId!, settings);
+  const result = await checkHistoryForBaseImage(entry.promptId!, settings);
 
-      if (result.status === 'ready' && result.imageInfo) {
-        console.log(`[Background] Base image ready for ${entry.id.substring(0, 8)}, starting upscale`);
-        await updatePromptEntry(entry.id, {
-          generationStage: 'uploading-upscale',
-          pollAttempts: 0,
-        });
-        // Immediately attempt upload + submit in this same tick
-        await handleUpscaleSubmission(entry, result.imageInfo, settings);
-      } else if (result.status === 'error') {
-        await updatePromptEntry(entry.id, { imageStatus: 'error', generationStage: undefined });
-      } else {
-        await updatePromptEntry(entry.id, { pollAttempts: attempts });
-      }
-      break;
-    }
-
-    case 'uploading-upscale': {
-      // Retry upload+submit if previous tick failed mid-way
-      const result = await checkHistoryForBaseImage(entry.basePromptId!, settings);
-      if (result.status === 'ready' && result.imageInfo) {
-        await handleUpscaleSubmission(entry, result.imageInfo, settings);
-      } else {
-        console.log(`[Background] Cannot recover base image for upscale, marking error`);
-        await updatePromptEntry(entry.id, { imageStatus: 'error', generationStage: undefined });
-      }
-      break;
-    }
-
-    case 'polling-upscale': {
-      // Both qwen-t2i and SeedVR stage 2: check node 81
-      const result = await checkHistoryForUpscaledImage(entry.promptId!, settings);
-
-      if (result.status === 'ready' && result.imageUrl) {
-        console.log(`[Background] Generation complete for ${entry.id.substring(0, 8)}`);
-        await updatePromptEntry(entry.id, {
-          imageStatus: 'done',
-          imageUrl: result.imageUrl,
-          generationStage: undefined,
-        });
-      } else if (result.status === 'error') {
-        await updatePromptEntry(entry.id, { imageStatus: 'error', generationStage: undefined });
-      } else {
-        await updatePromptEntry(entry.id, { pollAttempts: attempts });
-      }
-      break;
-    }
+  if (result.status === 'ready' && result.imageUrl) {
+    console.log(`[Background] Base image ready for ${entry.id.substring(0, 8)}`);
+    await updatePromptEntry(entry.id, {
+      imageStatus: 'done',
+      imageUrl: result.imageUrl,
+      baseImageUrl: result.imageUrl,
+      baseImageInfo: result.imageInfo,
+      generationStage: undefined,
+    });
+  } else if (result.status === 'error') {
+    await updatePromptEntry(entry.id, { imageStatus: 'error', generationStage: undefined });
+  } else {
+    await updatePromptEntry(entry.id, { pollAttempts: attempts });
   }
 }
 
-async function handleUpscaleSubmission(
-  entry: PromptEntry,
-  baseImageInfo: { filename: string; subfolder: string; type: string },
-  settings: ComfyUISettings,
-): Promise<void> {
-  try {
-    const upscalePromptId = await sendSeedVRUpscale(baseImageInfo, settings);
+/**
+ * Upscale polling — check node 81 for upscaled image.
+ */
+async function processUpscaleTick(entry: PromptEntry, settings: ComfyUISettings): Promise<void> {
+  const attempts = (entry.upscalePollAttempts || 0) + 1;
+
+  if (attempts > MAX_POLL_TICKS_UPSCALE) {
+    console.log(`[Background] Upscale timeout for ${entry.id.substring(0, 8)} (${attempts} ticks)`);
+    await updatePromptEntry(entry.id, { upscaleStatus: 'error' });
+    return;
+  }
+
+  const result = await checkHistoryForUpscaledImage(entry.upscalePromptId!, settings);
+
+  if (result.status === 'ready' && result.imageUrl) {
+    console.log(`[Background] Upscale complete for ${entry.id.substring(0, 8)}`);
     await updatePromptEntry(entry.id, {
-      promptId: upscalePromptId,
-      generationStage: 'polling-upscale',
-      pollAttempts: 0,
+      upscaleStatus: 'done',
+      imageUrl: result.imageUrl, // Update display image to upscaled version
     });
-    console.log(`[Background] SeedVR upscale submitted: ${upscalePromptId}`);
+  } else if (result.status === 'error') {
+    await updatePromptEntry(entry.id, { upscaleStatus: 'error' });
+  } else {
+    await updatePromptEntry(entry.id, { upscalePollAttempts: attempts });
+  }
+}
+
+/**
+ * Check if any base generations are pending (generating or queued).
+ * Includes both active (with promptId) and queued (without promptId) entries.
+ * Upscales must wait until ALL base work is done to avoid model thrashing.
+ */
+async function hasBaseGenerationsInFlight(): Promise<boolean> {
+  const history = await getHistory();
+  return history.some(e => e.imageStatus === 'generating');
+}
+
+/**
+ * User-triggered upscale for a completed base image.
+ * Queues the upscale — actual submission happens in alarm tick when no base generations are in-flight.
+ * This prevents model thrashing (QwenImage UNET vs upscale models on same GPU).
+ */
+async function startUpscale(entryId: string): Promise<void> {
+  const history = await getHistory();
+  const entry = history.find(e => e.id === entryId);
+  if (!entry || entry.imageStatus !== 'done') {
+    console.error(`[Background] Cannot upscale entry ${entryId.substring(0, 8)}: not done`);
+    return;
+  }
+
+  // Mark as queued for upscale — alarm tick will submit when base batch is done
+  await updatePromptEntry(entryId, {
+    upscaleStatus: 'upscaling',
+    upscalePollAttempts: 0,
+  });
+  await ensurePollAlarm();
+  console.log(`[Background] Upscale queued: entry=${entryId.substring(0, 8)}`);
+}
+
+/**
+ * Actually submit an upscale workflow to ComfyUI.
+ * Called from alarm tick when base generation batch is done.
+ */
+async function submitUpscale(entry: PromptEntry, settings: ComfyUISettings): Promise<void> {
+  const payload = buildPayload(entry.text, settings);
+
+  try {
+    const upscalePromptId = await buildAndSendUpscale(entry, payload, settings);
+    await updatePromptEntry(entry.id, {
+      upscalePromptId,
+      upscalePollAttempts: 0,
+    });
+    console.log(`[Background] Upscale submitted: entry=${entry.id.substring(0, 8)}, promptId=${upscalePromptId}`);
   } catch (error) {
-    console.error(`[Background] SeedVR upscale failed for ${entry.id.substring(0, 8)}:`, error);
-    await updatePromptEntry(entry.id, { imageStatus: 'error', generationStage: undefined });
+    console.error(`[Background] Failed to submit upscale:`, error);
+    await updatePromptEntry(entry.id, { upscaleStatus: 'error' });
   }
 }
 
@@ -278,12 +317,12 @@ chrome.alarms.onAlarm.addListener((alarm) => {
 });
 
 // --- Service worker startup recovery ---
-// When Chrome restarts the service worker, re-establish alarm if generations are in-flight
+// When Chrome restarts the service worker, re-establish alarm if work is in-flight
 (async () => {
   const history = await getHistory();
-  const hasInFlight = history.some(e => e.imageStatus === 'generating');
+  const hasInFlight = history.some(e => e.imageStatus === 'generating' || e.upscaleStatus === 'upscaling');
   if (hasInFlight) {
-    console.log('[Background] Service worker started with in-flight generations, ensuring alarm');
+    console.log('[Background] Service worker started with in-flight work, ensuring alarm');
     await ensurePollAlarm();
   }
 })();
@@ -304,6 +343,15 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     sendResponse({ success: true });
   } else if (message.type === 'CANCEL_GENERATION') {
     handleCancelMessage(message.entryId, message.promptId);
+    sendResponse({ success: true });
+  } else if (message.type === 'START_UPSCALE') {
+    startUpscale(message.entryId);
+    sendResponse({ success: true });
+  } else if (message.type === 'CANCEL_UPSCALE') {
+    handleCancelUpscaleMessage(message.entryId, message.promptId);
+    sendResponse({ success: true });
+  } else if (message.type === 'CANCEL_ALL') {
+    handleCancelAll();
     sendResponse({ success: true });
   }
 
@@ -326,6 +374,37 @@ async function handleCancelMessage(entryId: string, promptId: string): Promise<v
   const settings = await getSettings();
   await cancelPrompt(promptId, settings);
   await updatePromptEntry(entryId, { imageStatus: 'error', generationStage: undefined });
+}
+
+async function handleCancelUpscaleMessage(entryId: string, promptId: string): Promise<void> {
+  const settings = await getSettings();
+  await cancelPrompt(promptId, settings);
+  await updatePromptEntry(entryId, { upscaleStatus: 'error', upscalePromptId: undefined });
+}
+
+async function handleCancelAll(): Promise<void> {
+  const settings = await getSettings();
+  const history = await getHistory();
+
+  for (const entry of history) {
+    // Cancel active base generations
+    if (entry.imageStatus === 'generating') {
+      if (entry.promptId) {
+        try { await cancelPrompt(entry.promptId, settings); } catch { /* ignore */ }
+      }
+      await updatePromptEntry(entry.id, { imageStatus: 'error', generationStage: undefined });
+    }
+    // Cancel active/queued upscales
+    if (entry.upscaleStatus === 'upscaling') {
+      if (entry.upscalePromptId) {
+        try { await cancelPrompt(entry.upscalePromptId, settings); } catch { /* ignore */ }
+      }
+      await updatePromptEntry(entry.id, { upscaleStatus: 'error', upscalePromptId: undefined });
+    }
+  }
+
+  await chrome.alarms.clear(POLL_ALARM_NAME);
+  console.log('[Background] Cancelled all generations and upscales');
 }
 
 // --- Auto-detected prompt handler ---

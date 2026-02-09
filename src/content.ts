@@ -258,8 +258,10 @@ class PromptAutoDetector {
     this.storageChangeHandler = (changes: { [key: string]: chrome.storage.StorageChange }) => {
       if (changes.promptHistory) {
         const history = changes.promptHistory.newValue || [];
-        const count = history.filter((e: { imageStatus: string }) => e.imageStatus === 'generating').length;
-        this.setGeneratingState(count);
+        const busyCount = history.filter((e: { imageStatus: string; upscaleStatus?: string }) =>
+          e.imageStatus === 'generating' || e.upscaleStatus === 'upscaling'
+        ).length;
+        this.setGeneratingState(busyCount);
       }
     };
     chrome.storage.local.onChanged.addListener(this.storageChangeHandler);
@@ -275,8 +277,10 @@ class PromptAutoDetector {
   private checkGenerationStatus() {
     chrome.storage.local.get('promptHistory', (result) => {
       const history = result.promptHistory || [];
-      const count = history.filter((e: { imageStatus: string }) => e.imageStatus === 'generating').length;
-      this.setGeneratingState(count);
+      const busyCount = history.filter((e: { imageStatus: string; upscaleStatus?: string }) =>
+        e.imageStatus === 'generating' || e.upscaleStatus === 'upscaling'
+      ).length;
+      this.setGeneratingState(busyCount);
     });
   }
 

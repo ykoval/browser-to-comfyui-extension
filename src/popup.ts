@@ -11,6 +11,7 @@ class PopupApp {
   private autoSendToggle: HTMLInputElement;
   private historyList: HTMLElement;
   private clearHistoryBtn: HTMLButtonElement;
+  private cancelAllBtn: HTMLButtonElement;
   private refreshStatusesBtn: HTMLButtonElement;
   private serverAddressInput: HTMLInputElement;
   private negativePromptInput: HTMLTextAreaElement;
@@ -59,6 +60,7 @@ class PopupApp {
     this.autoSendToggle = document.getElementById('autoSendToggle') as HTMLInputElement;
     this.historyList = document.getElementById('historyList') as HTMLElement;
     this.clearHistoryBtn = document.getElementById('clearHistoryBtn') as HTMLButtonElement;
+    this.cancelAllBtn = document.getElementById('cancelAllBtn') as HTMLButtonElement;
     this.refreshStatusesBtn = document.getElementById('refreshStatusesBtn') as HTMLButtonElement;
     this.serverAddressInput = document.getElementById('serverAddress') as HTMLInputElement;
     this.negativePromptInput = document.getElementById('negativePrompt') as HTMLTextAreaElement;
@@ -228,6 +230,7 @@ class PopupApp {
     this.saveSettingsBtn.addEventListener('click', this.handleSaveSettings.bind(this));
     this.tabBtns.forEach(btn => btn.addEventListener('click', this.handleTabClick.bind(this)));
     this.clearHistoryBtn.addEventListener('click', this.handleClearHistory.bind(this));
+    this.cancelAllBtn.addEventListener('click', this.handleCancelAll.bind(this));
     this.refreshStatusesBtn.addEventListener('click', this.handleRefreshStatuses.bind(this));
     this.promptInput.addEventListener('input', this.handlePromptInputChange.bind(this));
     this.aspectRatioSelect.addEventListener('change', this.handlePromptControlChange.bind(this));
@@ -378,6 +381,15 @@ class PopupApp {
     }
   }
 
+  private handleCancelAll() {
+    chrome.runtime.sendMessage({ type: 'CANCEL_ALL' });
+  }
+
+  private updateCancelAllVisibility() {
+    const hasBusy = this.history.some(e => e.imageStatus === 'generating' || e.upscaleStatus === 'upscaling');
+    this.cancelAllBtn.classList.toggle('hidden', !hasBusy);
+  }
+
   private async handleRefreshStatuses() {
     this.refreshStatusesBtn.disabled = true;
     this.refreshStatusesBtn.textContent = '...';
@@ -505,7 +517,7 @@ class PopupApp {
 
     return {
       prompt: metadata.cleanPrompt,
-      negativePrompt: this.settings.negativePrompt,
+      negativePrompt: metadata.negativePrompt || this.settings.negativePrompt,
       seed: this.settings.seed,
       steps: this.settings.steps,
       cfg: this.settings.cfg,
@@ -604,10 +616,18 @@ class PopupApp {
 
       const meta = document.createElement('div');
       meta.className = 'meta';
-      const stageLabel = entry.imageStatus === 'generating' && entry.generationStage
-        ? `${entry.imageStatus} (${entry.generationStage})`
-        : entry.imageStatus;
-      meta.innerHTML = `<span class="timestamp">${getRelativeTime(entry.createdAt)}</span> · <span class="status status-${entry.imageStatus}">${stageLabel}</span>`;
+      let statusLabel = entry.imageStatus;
+      if (entry.imageStatus === 'generating' && entry.generationStage) {
+        statusLabel = `${entry.imageStatus} (${entry.generationStage})`;
+      }
+      if (entry.upscaleStatus === 'upscaling') {
+        statusLabel += ' | upscaling';
+      } else if (entry.upscaleStatus === 'done') {
+        statusLabel += ' | upscaled';
+      } else if (entry.upscaleStatus === 'error') {
+        statusLabel += ' | upscale failed';
+      }
+      meta.innerHTML = `<span class="timestamp">${getRelativeTime(entry.createdAt)}</span> · <span class="status status-${entry.imageStatus}">${statusLabel}</span>`;
 
       content.appendChild(text);
       content.appendChild(meta);
@@ -623,6 +643,26 @@ class PopupApp {
         cancelBtn.title = 'Cancel';
         cancelBtn.addEventListener('click', () => this.handleCancelGeneration(entry));
         actions.appendChild(cancelBtn);
+      }
+
+      // Upscale button — show when base is done and not already upscaled/upscaling
+      if (entry.imageStatus === 'done' && !entry.upscaleStatus) {
+        const upscaleBtn = document.createElement('button');
+        upscaleBtn.className = 'btn-upscale';
+        upscaleBtn.textContent = '⬆';
+        upscaleBtn.title = 'Upscale';
+        upscaleBtn.addEventListener('click', () => this.handleStartUpscale(entry.id));
+        actions.appendChild(upscaleBtn);
+      }
+
+      // Cancel upscale button
+      if (entry.upscaleStatus === 'upscaling') {
+        const cancelUpscaleBtn = document.createElement('button');
+        cancelUpscaleBtn.className = 'btn-cancel';
+        cancelUpscaleBtn.textContent = '✕';
+        cancelUpscaleBtn.title = 'Cancel upscale';
+        cancelUpscaleBtn.addEventListener('click', () => this.handleCancelUpscale(entry));
+        actions.appendChild(cancelUpscaleBtn);
       }
 
       const genCount = entry.generationCount || 0;
@@ -643,20 +683,37 @@ class PopupApp {
       item.appendChild(actions);
       this.historyList.appendChild(item);
     });
+
+    this.updateCancelAllVisibility();
   }
 
   private async handleCancelGeneration(entry: PromptEntry) {
     if (entry.promptId) {
-      // Delegate cancel to background service worker
       chrome.runtime.sendMessage({
         type: 'CANCEL_GENERATION',
         entryId: entry.id,
         promptId: entry.promptId,
       });
     } else {
-      // No promptId yet — just mark as error locally
       await updatePromptEntry(entry.id, { imageStatus: 'error' });
       await this.refreshHistory();
+    }
+  }
+
+  private handleStartUpscale(entryId: string) {
+    chrome.runtime.sendMessage({
+      type: 'START_UPSCALE',
+      entryId,
+    });
+  }
+
+  private handleCancelUpscale(entry: PromptEntry) {
+    if (entry.upscalePromptId) {
+      chrome.runtime.sendMessage({
+        type: 'CANCEL_UPSCALE',
+        entryId: entry.id,
+        promptId: entry.upscalePromptId,
+      });
     }
   }
 

@@ -266,6 +266,21 @@ body {
   background: rgba(255, 71, 87, 0.1);
 }
 
+.btn-cancel-all {
+  border-color: #ff4757;
+  color: #ff4757;
+  font-size: 11px;
+  font-weight: bold;
+}
+
+.btn-cancel-all:hover {
+  background: rgba(255, 71, 87, 0.2);
+}
+
+.btn-cancel-all.hidden {
+  display: none;
+}
+
 .history {
   flex: 1;
   overflow-y: auto;

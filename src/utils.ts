@@ -1,4 +1,4 @@
-import { ComfyUISettings, PromptEntry, STORAGE_KEYS, DEFAULT_SETTINGS, MAX_HISTORY_ENTRIES, ComfyUIPayload, WorkflowNode, BuiltInWorkflowType } from './types';
+import { ComfyUISettings, PromptEntry, STORAGE_KEYS, DEFAULT_SETTINGS, MAX_HISTORY_ENTRIES, ComfyUIPayload, WorkflowNode, BuiltInWorkflowType, ImageInfo } from './types';
 import baseWorkflowTemplate from './workflows/qwen-t2i-base.json';
 import upscaleNodesTemplate from './workflows/qwen-t2i-upscale.json';
 import liteGraphWorkflowTemplate from './workflows/qwen-t2i-litegraph.json';
@@ -235,7 +235,8 @@ async function sendToComfyUI(payload: ComfyUIPayload, settings: ComfyUISettings)
       prompt: appliedWorkflow,
       extra_data: {
         extra_pnginfo: {
-          workflow: liteGraphWorkflow
+          workflow: liteGraphWorkflow,
+          prompt_text: promptText,
         }
       }
     };
@@ -337,12 +338,6 @@ async function pollForImage(promptId: string, settings: ComfyUISettings, maxAtte
   return null;
 }
 
-interface ImageInfo {
-  filename: string;
-  subfolder: string;
-  type: string;
-}
-
 interface HistoryCheckResult {
   status: 'ready' | 'waiting' | 'error';
   imageUrl?: string;
@@ -400,7 +395,7 @@ async function checkHistoryForUpscaledImage(promptId: string, settings: ComfyUIS
 
 /**
  * Non-blocking single check for base image at node 79.
- * Used by alarm-based polling for SeedVR stage 1.
+ * Returns both imageUrl (for display) and imageInfo (for upscale submission).
  */
 async function checkHistoryForBaseImage(promptId: string, settings: ComfyUISettings): Promise<HistoryCheckResult> {
   const historyUrl = `${settings.serverAddress}/history/${promptId}`;
@@ -418,8 +413,10 @@ async function checkHistoryForBaseImage(promptId: string, settings: ComfyUISetti
     const node79 = promptHistory.outputs?.['79'];
     if (node79?.images?.[0]) {
       const img = node79.images[0];
+      const imageUrl = `${settings.serverAddress}/view?filename=${encodeURIComponent(img.filename)}&subfolder=${encodeURIComponent(img.subfolder)}&type=${img.type}`;
       return {
         status: 'ready',
+        imageUrl,
         imageInfo: { filename: img.filename, subfolder: img.subfolder, type: img.type },
       };
     }
@@ -476,7 +473,7 @@ async function pollForBaseImage(promptId: string, settings: ComfyUISettings, max
  * Two-stage approach: ComfyUI needs to unload the QwenImage UNET (~19GB) before
  * SeedVR models can load on cuda:1. Separate prompts allow model eviction.
  */
-async function sendSeedVRUpscale(baseImageInfo: ImageInfo, settings: ComfyUISettings): Promise<string> {
+async function sendSeedVRUpscale(baseImageInfo: ImageInfo, settings: ComfyUISettings, promptText?: string): Promise<string> {
   // Step 1: Fetch the base image from ComfyUI output
   const imageUrl = `${settings.serverAddress}/view?filename=${encodeURIComponent(baseImageInfo.filename)}&subfolder=${encodeURIComponent(baseImageInfo.subfolder)}&type=${baseImageInfo.type}`;
   console.log('[sendSeedVRUpscale] Fetching base image:', imageUrl);
@@ -513,15 +510,23 @@ async function sendSeedVRUpscale(baseImageInfo: ImageInfo, settings: ComfyUISett
 
   console.log('[sendSeedVRUpscale] Submitting SeedVR upscale workflow');
 
-  // Step 4: Submit upscale prompt
+  // Step 4: Submit upscale prompt with full prompt text embedded in PNG metadata for recovery
   const promptUrl = `${settings.serverAddress}${settings.apiPath}`;
+  const body: Record<string, unknown> = { prompt: upscaleWorkflow };
+  if (promptText) {
+    body.extra_data = {
+      extra_pnginfo: {
+        prompt_text: promptText,
+      }
+    };
+  }
   const response = await fetch(promptUrl, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       ...settings.headers,
     },
-    body: JSON.stringify({ prompt: upscaleWorkflow }),
+    body: JSON.stringify(body),
   });
 
   if (!response.ok) {
@@ -530,6 +535,78 @@ async function sendSeedVRUpscale(baseImageInfo: ImageInfo, settings: ComfyUISett
 
   const result: ComfyUIPromptResponse = await response.json();
   console.log('[sendSeedVRUpscale] Upscale prompt_id:', result.prompt_id);
+  return result.prompt_id;
+}
+
+/**
+ * Build and submit an upscale workflow for a completed base image.
+ * - qwen-t2i: re-submits full workflow with KSampler upscale nodes merged
+ * - qwen-t2i-seedvr: uses standalone SeedVR upscale workflow via sendSeedVRUpscale
+ * Returns the upscale prompt_id.
+ */
+async function buildAndSendUpscale(
+  entry: PromptEntry,
+  payload: ComfyUIPayload,
+  settings: ComfyUISettings,
+): Promise<string> {
+  const workflowType = entry.workflowType || settings.builtInWorkflow;
+
+  if (workflowType === 'qwen-t2i-seedvr') {
+    if (!entry.baseImageInfo) throw new Error('No base image info for SeedVR upscale');
+    return sendSeedVRUpscale(entry.baseImageInfo, settings, entry.text);
+  }
+
+  // qwen-t2i: rebuild full workflow with upscale nodes merged
+  const seed = payload.seed === -1 ? Math.floor(Math.random() * 1000000000000) : payload.seed;
+  const workflow: WorkflowTemplate = structuredClone(baseWorkflowTemplate) as WorkflowTemplate;
+
+  workflow["3"].inputs.seed = seed;
+  workflow["3"].inputs.steps = payload.steps;
+  workflow["3"].inputs.cfg = payload.cfg;
+  workflow["105"].inputs.text = payload.negativePrompt || "dust, dots, stain";
+  workflow["118"].inputs.text = payload.prompt;
+
+  const ratio = payload.aspectRatio.replace(/\s*[◻▭▯]$/, '');
+  const dims = computeDimensionsForRatio(ratio, payload.megapixel);
+  workflow["114"].inputs.aspect_ratio = snapToValidRatio(ratio);
+  workflow["114"].inputs.megapixels = payload.megapixel;
+  workflow["114"].inputs.width = dims.width;
+  workflow["114"].inputs.height = dims.height;
+  workflow["114"].inputs.preset = dims.preset;
+
+  // Merge KSampler upscale nodes
+  const upscaleNodes = structuredClone(upscaleNodesTemplate) as WorkflowTemplate;
+  if (upscaleNodes["83"]) {
+    upscaleNodes["83"].inputs.seed = Math.floor(Math.random() * 1000000000000);
+  }
+  Object.assign(workflow, upscaleNodes);
+
+  console.log('[buildAndSendUpscale] qwen-t2i workflow with upscale, nodes:', Object.keys(workflow).join(', '));
+
+  // Embed full prompt text in PNG metadata for recovery if original image deleted
+  const promptUrl = `${settings.serverAddress}${settings.apiPath}`;
+  const liteGraphWorkflow = buildLiteGraphWorkflow(payload, seed, workflowType);
+  const body: Record<string, unknown> = {
+    prompt: workflow,
+    extra_data: {
+      extra_pnginfo: {
+        workflow: liteGraphWorkflow,
+        prompt_text: entry.text,
+      }
+    }
+  };
+  const response = await fetch(promptUrl, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...settings.headers },
+    body: JSON.stringify(body),
+  });
+
+  if (!response.ok) {
+    throw new Error(`Upscale HTTP ${response.status}: ${response.statusText}`);
+  }
+
+  const result: ComfyUIPromptResponse = await response.json();
+  console.log('[buildAndSendUpscale] Upscale prompt_id:', result.prompt_id);
   return result.prompt_id;
 }
 
@@ -606,7 +683,7 @@ function buildLiteGraphWorkflow(payload: ComfyUIPayload, seed: number, workflowT
           node.widgets_values[2] = dims.width;             // width
           node.widgets_values[3] = dims.height;            // height
           node.widgets_values[4] = payload.megapixel;      // megapixels
-          node.widgets_values[5] = ratio;                  // aspect_ratio
+          node.widgets_values[5] = snapToValidRatio(ratio); // aspect_ratio (must be in node's dropdown)
           node.widgets_values[6] = 1;                      // batch_size
         }
         break;
@@ -614,6 +691,36 @@ function buildLiteGraphWorkflow(payload: ComfyUIPayload, seed: number, workflowT
   }
 
   return lgWorkflow;
+}
+
+// Valid aspect ratios accepted by AGSoft_Empty_Latent_QwenImage node dropdown.
+const AGSOFT_VALID_RATIOS = ['1:1', '3:2', '2:3', '4:3', '3:4', '16:9', '9:16', '21:9', '9:21', '4:5', '5:4'];
+
+/**
+ * Snap an arbitrary aspect ratio to the closest one accepted by the AGSoft node.
+ * Compares as decimal values (w/h) and picks the nearest match.
+ */
+function snapToValidRatio(ratio: string): string {
+  if (AGSOFT_VALID_RATIOS.includes(ratio)) return ratio;
+
+  const match = ratio.match(/^(\d+):(\d+)/);
+  if (!match) return '16:9'; // fallback
+
+  const target = parseInt(match[1]) / parseInt(match[2]);
+  let closest = AGSOFT_VALID_RATIOS[0];
+  let closestDiff = Infinity;
+
+  for (const valid of AGSOFT_VALID_RATIOS) {
+    const [w, h] = valid.split(':').map(Number);
+    const diff = Math.abs(w / h - target);
+    if (diff < closestDiff) {
+      closestDiff = diff;
+      closest = valid;
+    }
+  }
+
+  console.log(`[Workflow] Snapped aspect ratio ${ratio} → ${closest}`);
+  return closest;
 }
 
 // Valid presets from AGSoft_Empty_Latent_QwenImage dropdown, keyed by aspect ratio.
@@ -679,7 +786,7 @@ function buildComfyUIWorkflow(payload: ComfyUIPayload, workflowType: BuiltInWork
     // Apply aspect ratio and megapixels to AGSoft_Empty_Latent_QwenImage (node 114)
     const seedvrRatio = payload.aspectRatio.replace(/\s*[◻▭▯]$/, '');
     const seedvrDims = computeDimensionsForRatio(seedvrRatio, payload.megapixel);
-    workflow["114"].inputs.aspect_ratio = seedvrRatio;
+    workflow["114"].inputs.aspect_ratio = snapToValidRatio(seedvrRatio);
     workflow["114"].inputs.megapixels = payload.megapixel;
     workflow["114"].inputs.width = seedvrDims.width;
     workflow["114"].inputs.height = seedvrDims.height;
@@ -694,7 +801,8 @@ function buildComfyUIWorkflow(payload: ComfyUIPayload, workflowType: BuiltInWork
       prompt: workflow,
       extra_data: {
         extra_pnginfo: {
-          workflow: liteGraphWorkflow
+          workflow: liteGraphWorkflow,
+          prompt_text: payload.prompt,
         }
       }
     };
@@ -712,19 +820,14 @@ function buildComfyUIWorkflow(payload: ComfyUIPayload, workflowType: BuiltInWork
   // Apply aspect ratio and megapixels to AGSoft_Empty_Latent_QwenImage (node 114)
   const stdRatio = payload.aspectRatio.replace(/\s*[◻▭▯]$/, '');
   const stdDims = computeDimensionsForRatio(stdRatio, payload.megapixel);
-  workflow["114"].inputs.aspect_ratio = stdRatio;
+  workflow["114"].inputs.aspect_ratio = snapToValidRatio(stdRatio);
   workflow["114"].inputs.megapixels = payload.megapixel;
   workflow["114"].inputs.width = stdDims.width;
   workflow["114"].inputs.height = stdDims.height;
   workflow["114"].inputs.preset = stdDims.preset;
 
-  // Always merge KSampler upscale nodes into workflow
-  console.log('[buildComfyUIWorkflow] Merging KSampler upscale nodes');
-  const upscaleNodes = structuredClone(upscaleNodesTemplate) as WorkflowTemplate;
-  if (upscaleNodes["83"]) {
-    upscaleNodes["83"].inputs.seed = Math.floor(Math.random() * 1000000000000);
-  }
-  Object.assign(workflow, upscaleNodes);
+  // Base-only: no upscale nodes merged. Upscale is user-triggered separately.
+  console.log('[buildComfyUIWorkflow] Base-only workflow (no upscale merge)');
   console.log('[buildComfyUIWorkflow] Workflow nodes:', Object.keys(workflow).join(', '));
 
   // Build LiteGraph workflow for PNG embedding using the selected template
@@ -734,7 +837,8 @@ function buildComfyUIWorkflow(payload: ComfyUIPayload, workflowType: BuiltInWork
     prompt: workflow,
     extra_data: {
       extra_pnginfo: {
-        workflow: liteGraphWorkflow
+        workflow: liteGraphWorkflow,
+        prompt_text: payload.prompt,
       }
     }
   };
@@ -754,6 +858,7 @@ function getRelativeTime(timestamp: number): string {
 
 interface PromptMetadata {
   aspectRatio?: string;
+  negativePrompt?: string;
   cleanPrompt: string;
 }
 
@@ -793,6 +898,18 @@ function parsePromptMetadata(promptText: string): PromptMetadata {
       .trim();
   }
 
+  // Match "Negative: ..." pattern (case insensitive, captures rest of line)
+  const negativeMatch = result.cleanPrompt.match(/^Negative:\s*(.+)$/im);
+  if (negativeMatch) {
+    result.negativePrompt = negativeMatch[1].trim();
+
+    // Remove the negative prompt line from clean prompt
+    result.cleanPrompt = result.cleanPrompt
+      .replace(/^Negative:\s*.+$/im, '')
+      .replace(/\n\n+/g, '\n\n')
+      .trim();
+  }
+
   return result;
 }
 
@@ -825,6 +942,7 @@ export {
   pollForImage,
   pollForBaseImage,
   sendSeedVRUpscale,
+  buildAndSendUpscale,
   checkHistoryForUpscaledImage,
   checkHistoryForBaseImage,
   getRelativeTime,
