@@ -196,6 +196,7 @@ npm run clean   # Remove dist/ folder
 | 114 | aspect_ratio, megapixels, width, height, preset | `payload.aspectRatio/megapixel` |
 | 203 | Median Blur (size=2) | Static — smoothing pipeline |
 | 204 | SkinBeauty (smooth=8, opacity=50%) | Static — smoothing pipeline |
+| 205 | Note (unconnected) | `payload.prompt` — visible prompt when image dragged into ComfyUI |
 | 79 | SaveImage (from node 204) | Regular output (smoothed) |
 | 81 | SaveImage | Upscaled output |
 

@@ -1,7 +1,7 @@
 {
   "id": "00000000-0000-0000-0000-000000000000",
   "revision": 0,
-  "last_node_id": 204,
+  "last_node_id": 205,
   "last_link_id": 60,
   "nodes": [
     {
@@ -354,6 +354,21 @@
       ],
       "properties": { "cnr_id": "comfyui_layerstyle", "ver": "2.0.33", "Node name for S&R": "LayerFilter: SkinBeauty" },
       "widgets_values": [8, -10, 50]
+    },
+    {
+      "id": 205,
+      "type": "Note",
+      "pos": [87, 1400],
+      "size": [500, 300],
+      "flags": {},
+      "order": 0,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [],
+      "properties": { "cnr_id": "comfy-core", "Node name for S&R": "Note" },
+      "widgets_values": [""],
+      "color": "#223",
+      "bgcolor": "#335"
     }
   ],
   "links": [

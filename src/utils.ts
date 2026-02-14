@@ -510,16 +510,26 @@ async function sendSeedVRUpscale(baseImageInfo: ImageInfo, settings: ComfyUISett
 
   console.log('[sendSeedVRUpscale] Submitting SeedVR upscale workflow');
 
-  // Step 4: Submit upscale prompt with full prompt text embedded in PNG metadata for recovery
+  // Step 4: Submit upscale prompt with SeedVR litegraph workflow embedded for PNG drag-and-drop.
+  // The base litegraph (with Note node 205 populated) lets users see the full generation pipeline
+  // when dragging the upscaled image into ComfyUI.
   const promptUrl = `${settings.serverAddress}${settings.apiPath}`;
   const body: Record<string, unknown> = { prompt: upscaleWorkflow };
-  if (promptText) {
-    body.extra_data = {
-      extra_pnginfo: {
-        prompt_text: promptText,
-      }
-    };
+
+  // Build the base SeedVR litegraph with prompt populated in Note node for PNG metadata
+  const liteGraphForPng = structuredClone(seedvrLiteGraphWorkflowTemplate) as LiteGraphWorkflow;
+  for (const node of liteGraphForPng.nodes) {
+    if (node.id === 205 && node.widgets_values) {
+      node.widgets_values[0] = promptText || '';
+    }
   }
+
+  body.extra_data = {
+    extra_pnginfo: {
+      workflow: liteGraphForPng,
+      prompt_text: promptText || '',
+    }
+  };
   const response = await fetch(promptUrl, {
     method: 'POST',
     headers: {
@@ -685,6 +695,11 @@ function buildLiteGraphWorkflow(payload: ComfyUIPayload, seed: number, workflowT
           node.widgets_values[4] = payload.megapixel;      // megapixels
           node.widgets_values[5] = snapToValidRatio(ratio); // aspect_ratio (must be in node's dropdown)
           node.widgets_values[6] = 1;                      // batch_size
+        }
+        break;
+      case 205: // Note - full prompt text (unconnected, visible when image dragged into ComfyUI)
+        if (node.widgets_values) {
+          node.widgets_values[0] = payload.prompt;
         }
         break;
     }
