@@ -66,7 +66,7 @@
       "order": 17,
       "mode": 0,
       "inputs": [
-        { "name": "images", "type": "IMAGE", "link": 70 }
+        { "name": "images", "type": "IMAGE", "link": 68 }
       ],
       "outputs": [],
       "properties": { "cnr_id": "comfy-core", "ver": "0.10.0", "Node name for S&R": "SaveImage" },
@@ -204,25 +204,6 @@
       ],
       "properties": { "cnr_id": "seedvr2_videoupscaler", "ver": "2.5.24", "Node name for S&R": "SeedVR2VideoUpscaler" },
       "widgets_values": [1, "fixed", 2160, 3840, 5, false, "lab", 0, 0, 0, 0, "cpu", false]
-    },
-    {
-      "id": 127,
-      "type": "LayerColor: AutoAdjustV2",
-      "pos": [3380, 440],
-      "size": [270, 246],
-      "flags": {},
-      "order": 24,
-      "mode": 0,
-      "inputs": [
-        { "name": "image", "type": "IMAGE", "link": 68 },
-        { "name": "mask", "shape": 7, "type": "MASK", "link": null }
-      ],
-      "outputs": [
-        { "name": "image", "type": "IMAGE", "links": [70] }
-      ],
-      "properties": { "cnr_id": "comfyui_layerstyle", "ver": "2.0.33", "Node name for S&R": "LayerColor: AutoAdjustV2" },
-      "widgets_values": [100, 0, 0, -10, 0, 0, 0, "RGB"],
-      "color": "rgba(27, 89, 123, 0.7)"
     },
     {
       "id": 103,
@@ -425,8 +406,7 @@
     [64, 123, 0, 124, 2, "SEEDVR2_VAE"],
     [65, 124, 0, 125, 0, "IMAGE"],
     [67, 125, 0, 126, 0, "*"],
-    [68, 126, 0, 127, 0, "IMAGE"],
-    [70, 127, 0, 81, 0, "IMAGE"],
+    [68, 126, 0, 81, 0, "IMAGE"],
     [72, 104, 0, 66, 0, "MODEL"],
     [76, 8, 0, 203, 0, "IMAGE"],
     [77, 203, 0, 204, 0, "IMAGE"],
