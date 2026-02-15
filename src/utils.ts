@@ -1,4 +1,4 @@
-import { ComfyUISettings, PromptEntry, STORAGE_KEYS, DEFAULT_SETTINGS, MAX_HISTORY_ENTRIES, ComfyUIPayload, WorkflowNode, BuiltInWorkflowType, ImageInfo } from './types';
+import { ComfyUISettings, PromptEntry, STORAGE_KEYS, DEFAULT_SETTINGS, MAX_HISTORY_ENTRIES, MAX_TIMING_SAMPLES, ComfyUIPayload, WorkflowNode, BuiltInWorkflowType, ImageInfo, TimingStats } from './types';
 import baseWorkflowTemplate from './workflows/qwen-t2i-base.json';
 import upscaleNodesTemplate from './workflows/qwen-t2i-upscale.json';
 import liteGraphWorkflowTemplate from './workflows/qwen-t2i-litegraph.json';
@@ -934,6 +934,33 @@ function buildWorkflowJsonForClipboard(payload: ComfyUIPayload, workflowType: Bu
   return JSON.stringify(liteGraphWorkflow);
 }
 
+// --- Timing stats ---
+
+async function getTimingStats(): Promise<TimingStats> {
+  const result = await storage.local.get(STORAGE_KEYS.TIMING_STATS);
+  return result[STORAGE_KEYS.TIMING_STATS] || { generationTimes: [], upscaleTimes: [] };
+}
+
+async function recordTimingSample(type: 'generation' | 'upscale', durationMs: number): Promise<void> {
+  if (durationMs <= 0) return;
+  const stats = await getTimingStats();
+  const arr = type === 'generation' ? stats.generationTimes : stats.upscaleTimes;
+  arr.push(durationMs);
+  // Keep only the last N samples
+  if (arr.length > MAX_TIMING_SAMPLES) {
+    arr.splice(0, arr.length - MAX_TIMING_SAMPLES);
+  }
+  await storage.local.set({ [STORAGE_KEYS.TIMING_STATS]: stats });
+}
+
+function formatDuration(ms: number): string {
+  const totalSec = Math.round(ms / 1000);
+  if (totalSec < 60) return `${totalSec}s`;
+  const min = Math.floor(totalSec / 60);
+  const sec = totalSec % 60;
+  return sec > 0 ? `${min}m${sec}s` : `${min}m`;
+}
+
 export {
   getSettings,
   saveSettings,
@@ -963,6 +990,9 @@ export {
   getRelativeTime,
   parsePromptMetadata,
   buildWorkflowJsonForClipboard,
+  getTimingStats,
+  recordTimingSample,
+  formatDuration,
 };
 
 export type { PromptMetadata, ImageInfo, HistoryCheckResult };

@@ -45,6 +45,16 @@ interface PromptEntry {
   upscaleStatus?: 'upscaling' | 'done' | 'error';
   upscalePromptId?: string;
   upscalePollAttempts?: number;
+  // Timing (millisecond timestamps)
+  generationStartedAt?: number;  // When submitted to ComfyUI (not queued)
+  generationDoneAt?: number;     // When base image ready
+  upscaleStartedAt?: number;     // When upscale submitted to ComfyUI
+  upscaleDoneAt?: number;        // When upscaled image ready
+}
+
+interface TimingStats {
+  generationTimes: number[];  // Last N generation durations (ms)
+  upscaleTimes: number[];     // Last N upscale durations (ms)
 }
 
 interface ComfyUIPayload {
@@ -92,7 +102,10 @@ const STORAGE_KEYS = {
   AUTO_DETECT_DOMAINS: 'autoDetectDomains',
   WORKFLOWS: 'importedWorkflows',
   ACTIVE_WORKFLOW: 'activeWorkflowId',
+  TIMING_STATS: 'timingStats',
 } as const;
+
+const MAX_TIMING_SAMPLES = 20; // Keep last N timing samples for averages
 
 const ASPECT_RATIOS = [
   '1:1 ◻',
@@ -137,5 +150,5 @@ const DEFAULT_SETTINGS: ComfyUISettings = {
 
 const MAX_HISTORY_ENTRIES = 50;
 
-export type { ComfyUISettings, PromptEntry, ComfyUIPayload, ComfyUIResponse, MappingType, WorkflowMapping, ImportedWorkflow, WorkflowNode, BuiltInWorkflowType, GenerationStage, ImageInfo };
-export { STORAGE_KEYS, DEFAULT_SETTINGS, MAX_HISTORY_ENTRIES, ASPECT_RATIOS, BUILT_IN_WORKFLOWS };
+export type { ComfyUISettings, PromptEntry, ComfyUIPayload, ComfyUIResponse, MappingType, WorkflowMapping, ImportedWorkflow, WorkflowNode, BuiltInWorkflowType, GenerationStage, ImageInfo, TimingStats };
+export { STORAGE_KEYS, DEFAULT_SETTINGS, MAX_HISTORY_ENTRIES, MAX_TIMING_SAMPLES, ASPECT_RATIOS, BUILT_IN_WORKFLOWS };

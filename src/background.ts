@@ -1,6 +1,6 @@
 /// <reference types="chrome" />
 
-import { getSettings, getHistory, addPromptEntry, sendToComfyUI, buildAndSendUpscale, cancelPrompt, updatePromptEntry, isPromptDuplicate, checkHistoryForUpscaledImage, checkHistoryForBaseImage, parsePromptMetadata } from './utils';
+import { getSettings, getHistory, addPromptEntry, sendToComfyUI, buildAndSendUpscale, cancelPrompt, updatePromptEntry, isPromptDuplicate, checkHistoryForUpscaledImage, checkHistoryForBaseImage, parsePromptMetadata, recordTimingSample } from './utils';
 import type { ComfyUISettings, PromptEntry } from './types';
 
 // --- Alarm-based polling constants ---
@@ -111,6 +111,7 @@ async function startGeneration(entryId: string, text: string): Promise<void> {
       basePromptId: promptId,
       pollAttempts: 0,
       workflowType: settings.builtInWorkflow,
+      generationStartedAt: Date.now(),
     });
     if (isSeedVR) seedvrSubmitting = false;
 
@@ -176,6 +177,7 @@ async function handleAlarmTick(): Promise<void> {
         generationStage: 'polling',
         basePromptId: promptId,
         pollAttempts: 0,
+        generationStartedAt: Date.now(),
       });
       console.log(`[Background] Queued SeedVR started: promptId=${promptId}`);
     } catch (error) {
@@ -215,6 +217,7 @@ async function processGenerationTick(entry: PromptEntry, settings: ComfyUISettin
   const result = await checkHistoryForBaseImage(entry.promptId!, settings);
 
   if (result.status === 'ready' && result.imageUrl) {
+    const doneAt = Date.now();
     console.log(`[Background] Base image ready for ${entry.id.substring(0, 8)}`);
     await updatePromptEntry(entry.id, {
       imageStatus: 'done',
@@ -222,7 +225,12 @@ async function processGenerationTick(entry: PromptEntry, settings: ComfyUISettin
       baseImageUrl: result.imageUrl,
       baseImageInfo: result.imageInfo,
       generationStage: undefined,
+      generationDoneAt: doneAt,
     });
+    // Record timing sample for average calculation
+    if (entry.generationStartedAt) {
+      await recordTimingSample('generation', doneAt - entry.generationStartedAt);
+    }
   } else if (result.status === 'error') {
     await updatePromptEntry(entry.id, { imageStatus: 'error', generationStage: undefined });
   } else {
@@ -245,11 +253,17 @@ async function processUpscaleTick(entry: PromptEntry, settings: ComfyUISettings)
   const result = await checkHistoryForUpscaledImage(entry.upscalePromptId!, settings);
 
   if (result.status === 'ready' && result.imageUrl) {
+    const doneAt = Date.now();
     console.log(`[Background] Upscale complete for ${entry.id.substring(0, 8)}`);
     await updatePromptEntry(entry.id, {
       upscaleStatus: 'done',
       imageUrl: result.imageUrl, // Update display image to upscaled version
+      upscaleDoneAt: doneAt,
     });
+    // Record timing sample for average calculation
+    if (entry.upscaleStartedAt) {
+      await recordTimingSample('upscale', doneAt - entry.upscaleStartedAt);
+    }
   } else if (result.status === 'error') {
     await updatePromptEntry(entry.id, { upscaleStatus: 'error' });
   } else {
@@ -301,6 +315,7 @@ async function submitUpscale(entry: PromptEntry, settings: ComfyUISettings): Pro
     await updatePromptEntry(entry.id, {
       upscalePromptId,
       upscalePollAttempts: 0,
+      upscaleStartedAt: Date.now(),
     });
     console.log(`[Background] Upscale submitted: entry=${entry.id.substring(0, 8)}, promptId=${upscalePromptId}`);
   } catch (error) {

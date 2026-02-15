@@ -1,7 +1,7 @@
 /// <reference types="chrome" />
 
-import { getSettings, saveSettings, getHistory, clearHistory, getActiveTab, setActiveTab, deletePromptEntry, addPromptEntry, updatePromptEntry, getRelativeTime, isAutoDetectEnabled, toggleAutoDetect, extractDomain, parsePromptMetadata, buildWorkflowJsonForClipboard } from './utils';
-import { PromptEntry, ComfyUISettings, ASPECT_RATIOS, ImportedWorkflow, MappingType, BUILT_IN_WORKFLOWS, BuiltInWorkflowType } from './types';
+import { getSettings, saveSettings, getHistory, clearHistory, getActiveTab, setActiveTab, deletePromptEntry, addPromptEntry, updatePromptEntry, getRelativeTime, isAutoDetectEnabled, toggleAutoDetect, extractDomain, parsePromptMetadata, buildWorkflowJsonForClipboard, getTimingStats, formatDuration } from './utils';
+import { PromptEntry, ComfyUISettings, ASPECT_RATIOS, ImportedWorkflow, MappingType, BUILT_IN_WORKFLOWS, BuiltInWorkflowType, TimingStats } from './types';
 import { getWorkflows, addWorkflow, deleteWorkflow, updateWorkflow, getActiveWorkflowId, setActiveWorkflowId, detectWorkflowMappings, findOutputNodeId, parseWorkflowFile, DetectedMapping } from './workflow-utils';
 
 class PopupApp {
@@ -52,6 +52,9 @@ class PopupApp {
   private currentMappings: DetectedMapping[] = [];
   private currentDomain: string = '';
   private currentTabId: number | null = null;
+  private timingStats!: TimingStats;
+  private timingRefreshInterval: ReturnType<typeof setInterval> | null = null;
+  private timingSummary!: HTMLElement;
 
   constructor() {
     this.promptInput = document.getElementById('promptInput') as HTMLTextAreaElement;
@@ -95,6 +98,7 @@ class PopupApp {
     this.mappingsList = document.getElementById('mappingsList') as HTMLElement;
     this.closeMappingsBtn = document.getElementById('closeMappingsBtn') as HTMLButtonElement;
     this.saveMappingsBtn = document.getElementById('saveMappingsBtn') as HTMLButtonElement;
+    this.timingSummary = document.getElementById('timingSummary') as HTMLElement;
 
     this.initAspectRatioOptions();
     this.initBuiltInWorkflowOptions();
@@ -124,12 +128,14 @@ class PopupApp {
     this.settings = await getSettings();
     this.history = await getHistory();
     this.workflows = await getWorkflows();
+    this.timingStats = await getTimingStats();
     await this.initCurrentTab();
     await this.restoreActiveTab();
     await this.initWorkflowSelect();
     this.updateUI();
     this.bindEvents();
     this.setupStorageListener();
+    this.startTimingRefresh();
   }
 
   private async initWorkflowSelect() {
@@ -147,9 +153,10 @@ class PopupApp {
   }
 
   private setupStorageListener() {
-    chrome.storage.local.onChanged.addListener((changes: { [key: string]: chrome.storage.StorageChange }) => {
+    chrome.storage.local.onChanged.addListener(async (changes: { [key: string]: chrome.storage.StorageChange }) => {
       if (changes.promptHistory) {
         console.log('[Popup] History changed in storage, refreshing...');
+        this.timingStats = await getTimingStats();
         this.refreshHistory();
       }
     });
@@ -627,7 +634,32 @@ class PopupApp {
       } else if (entry.upscaleStatus === 'error') {
         statusLabel += ' | upscale failed';
       }
-      meta.innerHTML = `<span class="timestamp">${getRelativeTime(entry.createdAt)}</span> · <span class="status status-${entry.imageStatus}">${statusLabel}</span>`;
+
+      // Build timing info
+      const timingParts: string[] = [];
+      const avgGen = this.getAvgTime('generation');
+      const avgUp = this.getAvgTime('upscale');
+
+      if (entry.imageStatus === 'generating' && entry.generationStartedAt) {
+        // Live elapsed + ETA
+        const elapsed = Date.now() - entry.generationStartedAt;
+        const etaStr = avgGen > 0 ? ` / ~${formatDuration(avgGen)}` : '';
+        timingParts.push(`<span class="timing-live">⏱ ${formatDuration(elapsed)}${etaStr}</span>`);
+      } else if (entry.imageStatus === 'done' && entry.generationStartedAt && entry.generationDoneAt) {
+        // Completed generation time
+        timingParts.push(`<span class="timing-done">⚡${formatDuration(entry.generationDoneAt - entry.generationStartedAt)}</span>`);
+      }
+
+      if (entry.upscaleStatus === 'upscaling' && entry.upscaleStartedAt) {
+        const elapsed = Date.now() - entry.upscaleStartedAt;
+        const etaStr = avgUp > 0 ? ` / ~${formatDuration(avgUp)}` : '';
+        timingParts.push(`<span class="timing-live">⏱ ${formatDuration(elapsed)}${etaStr}</span>`);
+      } else if (entry.upscaleStatus === 'done' && entry.upscaleStartedAt && entry.upscaleDoneAt) {
+        timingParts.push(`<span class="timing-done">⬆${formatDuration(entry.upscaleDoneAt - entry.upscaleStartedAt)}</span>`);
+      }
+
+      const timingHtml = timingParts.length > 0 ? ` · ${timingParts.join(' + ')}` : '';
+      meta.innerHTML = `<span class="timestamp">${getRelativeTime(entry.createdAt)}</span> · <span class="status status-${entry.imageStatus}">${statusLabel}</span>${timingHtml}`;
 
       content.appendChild(text);
       content.appendChild(meta);
@@ -685,6 +717,7 @@ class PopupApp {
     });
 
     this.updateCancelAllVisibility();
+    this.renderTimingSummary();
   }
 
   private async handleCancelGeneration(entry: PromptEntry) {
@@ -727,6 +760,86 @@ class PopupApp {
     this.history = await getHistory();
     console.log(`[Popup] Loaded ${this.history.length} entries:`, this.history.map(e => e.id.substring(0, 8)));
     this.renderHistory();
+  }
+
+  private getAvgTime(type: 'generation' | 'upscale'): number {
+    const arr = type === 'generation' ? this.timingStats.generationTimes : this.timingStats.upscaleTimes;
+    if (!arr || arr.length === 0) return 0;
+    return arr.reduce((a, b) => a + b, 0) / arr.length;
+  }
+
+  /** Re-render history every 5s while tasks are in-flight, to update elapsed timers */
+  private startTimingRefresh() {
+    if (this.timingRefreshInterval) return;
+    this.timingRefreshInterval = setInterval(() => {
+      const hasActive = this.history.some(e =>
+        e.imageStatus === 'generating' || e.upscaleStatus === 'upscaling'
+      );
+      if (hasActive) {
+        this.renderHistory();
+      }
+    }, 5000);
+  }
+
+  /** Render aggregate timing summary bar above history list */
+  private renderTimingSummary() {
+    const now = Date.now();
+    const avgGen = this.getAvgTime('generation');
+    const avgUp = this.getAvgTime('upscale');
+
+    // Collect all active tasks and compute remaining time
+    let totalRemainingMs = 0;
+    let generatingCount = 0;
+    let upscalingCount = 0;
+
+    for (const entry of this.history) {
+      if (entry.imageStatus === 'generating') {
+        generatingCount++;
+        if (entry.generationStartedAt && avgGen > 0) {
+          const elapsed = now - entry.generationStartedAt;
+          const remaining = Math.max(0, avgGen - elapsed);
+          totalRemainingMs += remaining;
+        } else if (avgGen > 0) {
+          totalRemainingMs += avgGen; // Not started yet, assume full duration
+        }
+      }
+      if (entry.upscaleStatus === 'upscaling') {
+        upscalingCount++;
+        if (entry.upscaleStartedAt && avgUp > 0) {
+          const elapsed = now - entry.upscaleStartedAt;
+          const remaining = Math.max(0, avgUp - elapsed);
+          totalRemainingMs += remaining;
+        } else if (avgUp > 0) {
+          totalRemainingMs += avgUp;
+        }
+      }
+    }
+
+    const totalActive = generatingCount + upscalingCount;
+
+    if (totalActive === 0) {
+      this.timingSummary.classList.add('hidden');
+      return;
+    }
+
+    this.timingSummary.classList.remove('hidden');
+
+    const parts: string[] = [];
+    parts.push(`<span class="timing-summary-count">${totalActive} task${totalActive > 1 ? 's' : ''}</span>`);
+
+    if (totalRemainingMs > 0) {
+      parts.push(`<span class="timing-summary-eta">~${formatDuration(totalRemainingMs)} left</span>`);
+    }
+
+    // Show avg stats
+    const avgParts: string[] = [];
+    if (avgGen > 0) avgParts.push(`gen ${formatDuration(avgGen)}`);
+    if (avgUp > 0) avgParts.push(`up ${formatDuration(avgUp)}`);
+    if (avgParts.length > 0) {
+      parts.push(`<span class="timing-summary-avg">avg: ${avgParts.join(' · ')}</span>`);
+    }
+
+    this.timingSummary.innerHTML = `⏱ ${parts.join(' · ')}`;
   }
 
   private async handleBuiltInWorkflowChange() {

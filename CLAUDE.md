@@ -42,6 +42,7 @@ src/
 | `local` | `autoDetectDomains` | Domains with auto-detect enabled |
 | `local` | `importedWorkflows` | Custom workflow definitions |
 | `local` | `activeWorkflowId` | Currently selected workflow |
+| `local` | `timingStats` | TimingStats: last 20 generation/upscale durations for ETA |
 
 ### Message Types
 

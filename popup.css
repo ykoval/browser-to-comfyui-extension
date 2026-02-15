@@ -360,6 +360,44 @@ body {
 .status-done { color: var(--neon-green); }
 .status-error { color: #ff4757; }
 
+.timing-live {
+  color: var(--neon-pink);
+  font-variant-numeric: tabular-nums;
+}
+.timing-done {
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.timing-summary {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 10px;
+  margin: 4px 0;
+  background: rgba(255, 46, 151, 0.08);
+  border: 1px solid rgba(255, 46, 151, 0.25);
+  border-radius: 6px;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-secondary);
+}
+.timing-summary.hidden {
+  display: none;
+}
+.timing-summary-count {
+  color: var(--neon-pink);
+  font-weight: 600;
+}
+.timing-summary-eta {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+.timing-summary-avg {
+  color: var(--text-muted);
+  font-size: 10px;
+}
+
 .history-item-actions {
   display: flex;
   flex-direction: column;
