@@ -72,7 +72,7 @@
       ],
       "outputs": [],
       "properties": { "cnr_id": "comfy-core", "ver": "0.4.0", "Node name for S&R": "SaveImage" },
-      "widgets_values": ["Qwen image/QwenImageT2I"]
+      "widgets_values": ["Qwen image/QI_T2I"]
     },
     {
       "id": 81,
@@ -87,7 +87,7 @@
       ],
       "outputs": [],
       "properties": { "cnr_id": "comfy-core", "ver": "0.4.0", "Node name for S&R": "SaveImage" },
-      "widgets_values": ["Qwen image/QwenImageT2I_UP"]
+      "widgets_values": ["Qwen image/QI_T2I_UP"]
     },
     {
       "id": 83,

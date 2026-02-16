@@ -23,6 +23,11 @@
           </label>
         </div>
         <button id="cancelAllBtn" class="icon-btn btn-cancel-all hidden" title="Cancel all generations & upscales">✕ All</button>
+        <button id="importPngBtn" class="icon-btn btn-import" title="Import prompt from PNG">📂</button>
+        <input type="file" id="pngFileInput" accept="image/png,.png" multiple style="display: none;">
+        <button id="exportHistoryBtn" class="icon-btn btn-export" title="Export history to JSON">💾</button>
+        <button id="importHistoryBtn" class="icon-btn btn-import" title="Import history from JSON">📥</button>
+        <input type="file" id="historyFileInput" accept=".json" style="display: none;">
         <button id="refreshStatusesBtn" class="icon-btn" title="Refresh generation statuses">↻</button>
         <button id="clearHistoryBtn" class="icon-btn" title="Clear history">🗑</button>
       </div>

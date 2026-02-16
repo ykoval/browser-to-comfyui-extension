@@ -49,7 +49,7 @@
   },
   "79": {
     "inputs": {
-      "filename_prefix": "Qwen image/QwenImageT2I",
+      "filename_prefix": "Qwen image/QI_T2I",
       "images": ["204", 0]
     },
     "class_type": "SaveImage",

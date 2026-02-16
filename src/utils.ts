@@ -467,6 +467,27 @@ async function pollForBaseImage(promptId: string, settings: ComfyUISettings, max
 }
 
 /**
+ * Extract the base number from a ComfyUI SaveImage filename.
+ * e.g. "QI_T2I_00082_.png" → "00082"
+ *      "QwenImageT2I_00082_.png" → "00082"
+ * Returns null if no match found.
+ */
+function extractBaseNumber(filename: string): string | null {
+  // Match the last group of digits before the final _.ext (ComfyUI pattern: prefix_NNNNN_.ext)
+  const match = filename.match(/_(\d{5,})_\.\w+$/);
+  return match ? match[1] : null;
+}
+
+/** Get today's date as DD-MM-YYYY for ComfyUI output subfolder. */
+function getDatePrefix(): string {
+  const d = new Date();
+  const dd = String(d.getDate()).padStart(2, '0');
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const yyyy = d.getFullYear();
+  return `${dd}-${mm}-${yyyy}`;
+}
+
+/**
  * Upload base image to ComfyUI input folder, build standalone SeedVR upscale workflow,
  * and submit as a separate prompt. Returns the upscale prompt_id.
  *
@@ -507,6 +528,14 @@ async function sendSeedVRUpscale(baseImageInfo: ImageInfo, settings: ComfyUISett
   const upscaleWorkflow = structuredClone(seedvrUpscaleStandaloneTemplate) as WorkflowTemplate;
   upscaleWorkflow["200"].inputs.image = uploadedFilename;
   upscaleWorkflow["124"].inputs.seed = Math.floor(Math.random() * 4294967295);
+
+  // Set upscale filename to include base image number for easy matching:
+  // Base: QI_T2I_00082_.png → Upscale prefix: QI_T2I_00082_UP → saves as QI_T2I_00082_UP_00001_.png
+  const baseNum = extractBaseNumber(baseImageInfo.filename);
+  if (baseNum && upscaleWorkflow["81"]) {
+    upscaleWorkflow["81"].inputs.filename_prefix = `Qwen image/${getDatePrefix()}/QI_T2I_${baseNum}_UP`;
+    console.log('[sendSeedVRUpscale] Upscale prefix set to:', upscaleWorkflow["81"].inputs.filename_prefix);
+  }
 
   console.log('[sendSeedVRUpscale] Submitting SeedVR upscale workflow');
 
@@ -590,6 +619,16 @@ async function buildAndSendUpscale(
     upscaleNodes["83"].inputs.seed = Math.floor(Math.random() * 1000000000000);
   }
   Object.assign(workflow, upscaleNodes);
+
+  // Set upscale filename to include base image number for easy matching:
+  // Base: QI_T2I_00082_.png → Upscale prefix: QI_T2I_00082_UP → saves as QI_T2I_00082_UP_00001_.png
+  if (entry.baseImageInfo && workflow["81"]) {
+    const baseNum = extractBaseNumber(entry.baseImageInfo.filename);
+    if (baseNum) {
+      workflow["81"].inputs.filename_prefix = `Qwen image/${getDatePrefix()}/QI_T2I_${baseNum}_UP`;
+      console.log('[buildAndSendUpscale] Upscale prefix set to:', workflow["81"].inputs.filename_prefix);
+    }
+  }
 
   console.log('[buildAndSendUpscale] qwen-t2i workflow with upscale, nodes:', Object.keys(workflow).join(', '));
 
@@ -807,6 +846,9 @@ function buildComfyUIWorkflow(payload: ComfyUIPayload, workflowType: BuiltInWork
     workflow["114"].inputs.height = seedvrDims.height;
     workflow["114"].inputs.preset = seedvrDims.preset;
 
+    // Date-based output subfolder
+    workflow["79"].inputs.filename_prefix = `Qwen image/${getDatePrefix()}/QI_T2I`;
+
     // SeedVR base-only: no upscale nodes merged (two-stage to avoid OOM)
     console.log('[buildComfyUIWorkflow] SeedVR base-only workflow (upscale sent separately)');
     console.log('[buildComfyUIWorkflow] Workflow nodes:', Object.keys(workflow).join(', '));
@@ -840,6 +882,9 @@ function buildComfyUIWorkflow(payload: ComfyUIPayload, workflowType: BuiltInWork
   workflow["114"].inputs.width = stdDims.width;
   workflow["114"].inputs.height = stdDims.height;
   workflow["114"].inputs.preset = stdDims.preset;
+
+  // Date-based output subfolder
+  workflow["79"].inputs.filename_prefix = `Qwen image/${getDatePrefix()}/QI_T2I`;
 
   // Base-only: no upscale nodes merged. Upscale is user-triggered separately.
   console.log('[buildComfyUIWorkflow] Base-only workflow (no upscale merge)');

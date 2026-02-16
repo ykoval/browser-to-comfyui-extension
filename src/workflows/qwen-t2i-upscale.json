@@ -1,7 +1,7 @@
 {
   "81": {
     "inputs": {
-      "filename_prefix": "Qwen image/QwenImageT2I_UP",
+      "filename_prefix": "Qwen image/QI_T2I_UP",
       "images": ["88", 0]
     },
     "class_type": "SaveImage",

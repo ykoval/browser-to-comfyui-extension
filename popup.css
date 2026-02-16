@@ -266,6 +266,13 @@ body {
   background: rgba(255, 71, 87, 0.1);
 }
 
+.icon-btn.btn-import:hover,
+.icon-btn.btn-export:hover {
+  border-color: var(--neon-cyan);
+  color: var(--neon-cyan);
+  background: rgba(0, 245, 212, 0.1);
+}
+
 .btn-cancel-all {
   border-color: #ff4757;
   color: #ff4757;

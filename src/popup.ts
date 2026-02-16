@@ -1,8 +1,9 @@
 /// <reference types="chrome" />
 
-import { getSettings, saveSettings, getHistory, clearHistory, getActiveTab, setActiveTab, deletePromptEntry, addPromptEntry, updatePromptEntry, getRelativeTime, isAutoDetectEnabled, toggleAutoDetect, extractDomain, parsePromptMetadata, buildWorkflowJsonForClipboard, getTimingStats, formatDuration } from './utils';
+import { getSettings, saveSettings, getHistory, saveHistory, clearHistory, getActiveTab, setActiveTab, deletePromptEntry, addPromptEntry, updatePromptEntry, getRelativeTime, isAutoDetectEnabled, toggleAutoDetect, extractDomain, parsePromptMetadata, buildWorkflowJsonForClipboard, getTimingStats, formatDuration } from './utils';
 import { PromptEntry, ComfyUISettings, ASPECT_RATIOS, ImportedWorkflow, MappingType, BUILT_IN_WORKFLOWS, BuiltInWorkflowType, TimingStats } from './types';
 import { getWorkflows, addWorkflow, deleteWorkflow, updateWorkflow, getActiveWorkflowId, setActiveWorkflowId, detectWorkflowMappings, findOutputNodeId, parseWorkflowFile, DetectedMapping } from './workflow-utils';
+import { extractPromptFromPNG } from './png-metadata';
 
 class PopupApp {
   private promptInput: HTMLTextAreaElement;
@@ -55,6 +56,11 @@ class PopupApp {
   private timingStats!: TimingStats;
   private timingRefreshInterval: ReturnType<typeof setInterval> | null = null;
   private timingSummary!: HTMLElement;
+  private importPngBtn!: HTMLButtonElement;
+  private pngFileInput!: HTMLInputElement;
+  private exportHistoryBtn!: HTMLButtonElement;
+  private importHistoryBtn!: HTMLButtonElement;
+  private historyFileInput!: HTMLInputElement;
 
   constructor() {
     this.promptInput = document.getElementById('promptInput') as HTMLTextAreaElement;
@@ -99,6 +105,11 @@ class PopupApp {
     this.closeMappingsBtn = document.getElementById('closeMappingsBtn') as HTMLButtonElement;
     this.saveMappingsBtn = document.getElementById('saveMappingsBtn') as HTMLButtonElement;
     this.timingSummary = document.getElementById('timingSummary') as HTMLElement;
+    this.importPngBtn = document.getElementById('importPngBtn') as HTMLButtonElement;
+    this.pngFileInput = document.getElementById('pngFileInput') as HTMLInputElement;
+    this.exportHistoryBtn = document.getElementById('exportHistoryBtn') as HTMLButtonElement;
+    this.importHistoryBtn = document.getElementById('importHistoryBtn') as HTMLButtonElement;
+    this.historyFileInput = document.getElementById('historyFileInput') as HTMLInputElement;
 
     this.initAspectRatioOptions();
     this.initBuiltInWorkflowOptions();
@@ -251,6 +262,11 @@ class PopupApp {
     this.workflowSelect.addEventListener('change', this.handleWorkflowChange.bind(this));
     this.importWorkflowBtn.addEventListener('click', () => this.workflowFileInput.click());
     this.workflowFileInput.addEventListener('change', this.handleWorkflowImport.bind(this));
+    this.importPngBtn.addEventListener('click', () => this.pngFileInput.click());
+    this.pngFileInput.addEventListener('change', this.handlePngImport.bind(this));
+    this.exportHistoryBtn.addEventListener('click', this.handleExportHistory.bind(this));
+    this.importHistoryBtn.addEventListener('click', () => this.historyFileInput.click());
+    this.historyFileInput.addEventListener('change', this.handleHistoryImport.bind(this));
     this.editMappingsBtn.addEventListener('click', this.handleEditMappings.bind(this));
     this.deleteWorkflowBtn.addEventListener('click', this.handleDeleteWorkflow.bind(this));
     this.closeMappingsBtn.addEventListener('click', () => this.mappingsPanel.classList.add('hidden'));
@@ -301,6 +317,145 @@ class PopupApp {
       this.scanStatus.textContent = '';
       this.scanStatus.classList.remove('success');
     }, 3000);
+  }
+
+  private async handlePngImport(event: Event) {
+    const input = event.target as HTMLInputElement;
+    const files = input.files;
+    if (!files || files.length === 0) return;
+
+    let addedCount = 0;
+    let failedCount = 0;
+
+    for (const file of Array.from(files)) {
+      try {
+        const extracted = await extractPromptFromPNG(file);
+        if (!extracted) {
+          failedCount++;
+          continue;
+        }
+
+        const isDuplicate = this.history.some(
+          entry => entry.text.trim().toLowerCase() === extracted.text.trim().toLowerCase()
+        );
+        if (isDuplicate) continue;
+
+        await addPromptEntry(extracted.text);
+        addedCount++;
+      } catch (error) {
+        console.error(`[Popup] Failed to extract prompt from ${file.name}:`, error);
+        failedCount++;
+      }
+    }
+
+    await this.refreshHistory();
+
+    if (addedCount > 0) {
+      this.scanStatus.textContent = `Imported ${addedCount} prompt${addedCount > 1 ? 's' : ''} from PNG`;
+      this.scanStatus.classList.add('success');
+    } else if (failedCount > 0) {
+      this.scanStatus.textContent = 'No prompts found in selected PNG(s)';
+    } else {
+      this.scanStatus.textContent = 'All prompts already in history';
+    }
+
+    setTimeout(() => {
+      this.scanStatus.textContent = '';
+      this.scanStatus.classList.remove('success');
+    }, 3000);
+
+    // Reset so same file(s) can be re-imported
+    input.value = '';
+  }
+
+  private handleExportHistory() {
+    if (this.history.length === 0) {
+      this.scanStatus.textContent = 'No history to export';
+      setTimeout(() => { this.scanStatus.textContent = ''; }, 3000);
+      return;
+    }
+
+    const json = JSON.stringify(this.history, null, 2);
+    const blob = new Blob([json], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `prompt-history-${new Date().toISOString().split('T')[0]}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+
+    this.scanStatus.textContent = `Exported ${this.history.length} entries`;
+    this.scanStatus.classList.add('success');
+    setTimeout(() => {
+      this.scanStatus.textContent = '';
+      this.scanStatus.classList.remove('success');
+    }, 3000);
+  }
+
+  private async handleHistoryImport(event: Event) {
+    const input = event.target as HTMLInputElement;
+    const file = input.files?.[0];
+    if (!file) return;
+
+    try {
+      const text = await file.text();
+      const parsed = JSON.parse(text);
+      const entries: unknown[] = Array.isArray(parsed) ? parsed : [parsed];
+
+      const existingIds = new Set(this.history.map(e => e.id));
+      let importedCount = 0;
+
+      for (const raw of entries) {
+        if (!this.isValidPromptEntry(raw)) continue;
+        const entry = raw as PromptEntry;
+        if (existingIds.has(entry.id)) continue;
+
+        // Reset transient service-worker state (not valid in a new session)
+        entry.promptId = undefined;
+        entry.generationStage = undefined;
+        entry.pollAttempts = undefined;
+        entry.basePromptId = undefined;
+        entry.upscalePromptId = undefined;
+        entry.upscalePollAttempts = undefined;
+
+        // Keep: imageStatus, generationCount, timing fields, imageUrl, text, etc.
+        this.history.push(entry);
+        existingIds.add(entry.id);
+        importedCount++;
+      }
+
+      if (importedCount > 0) {
+        await saveHistory(this.history);
+        await this.refreshHistory();
+        this.scanStatus.textContent = `Imported ${importedCount} entries`;
+        this.scanStatus.classList.add('success');
+      } else if (entries.length > 0) {
+        this.scanStatus.textContent = 'All entries already in history';
+      } else {
+        this.scanStatus.textContent = 'No valid entries found in file';
+      }
+    } catch (error) {
+      console.error('[Popup] Failed to import history:', error);
+      this.scanStatus.textContent = 'Invalid history file';
+    }
+
+    setTimeout(() => {
+      this.scanStatus.textContent = '';
+      this.scanStatus.classList.remove('success');
+    }, 3000);
+
+    input.value = '';
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  private isValidPromptEntry(obj: any): obj is PromptEntry {
+    return obj &&
+      typeof obj.id === 'string' &&
+      typeof obj.text === 'string' &&
+      typeof obj.createdAt === 'number' &&
+      typeof obj.imageStatus === 'string';
   }
 
   private async handleScanPage() {
