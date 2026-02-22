@@ -1,6 +1,6 @@
 /// <reference types="chrome" />
 
-import { getSettings, getHistory, addPromptEntry, sendToComfyUI, buildAndSendUpscale, cancelPrompt, updatePromptEntry, isPromptDuplicate, checkHistoryForUpscaledImage, checkHistoryForBaseImage, parsePromptMetadata, recordTimingSample } from './utils';
+import { getSettings, getHistory, addPromptEntry, sendToComfyUI, buildAndSendUpscale, cancelPrompt, updatePromptEntry, deletePromptEntry, isPromptDuplicate, checkHistoryForUpscaledImage, checkHistoryForBaseImage, parsePromptMetadata, recordTimingSample } from './utils';
 import type { ComfyUISettings, PromptEntry } from './types';
 
 // --- Alarm-based polling constants ---
@@ -8,6 +8,11 @@ const POLL_ALARM_NAME = 'poll-generations';
 const POLL_INTERVAL_MINUTES = 0.5; // 30 seconds (Chrome minimum for alarms)
 const MAX_POLL_TICKS_BASE = 12;    // 12 × 30s = 6 minutes (base generation)
 const MAX_POLL_TICKS_UPSCALE = 12; // 12 × 30s = 6 minutes (upscale)
+
+// --- Serial queue for auto-detected prompts ---
+// Prevents race conditions when multiple prompts arrive simultaneously:
+// each must finish (duplicate check + add + start generation) before the next begins
+let autoDetectQueue: Promise<void> = Promise.resolve();
 
 // --- Context menu setup ---
 chrome.runtime.onInstalled.addListener(() => {
@@ -189,6 +194,13 @@ async function handleAlarmTick(): Promise<void> {
   // Promote queued upscales — only when no base generations are in-flight
   // This prevents model thrashing (QwenImage must fully unload before upscale models load)
   if (!await hasBaseGenerationsInFlight()) {
+    if (settings.autoUpscaleWhenIdle) {
+      const queuedByRule = await queueAutoUpscalesForCompletedEntries();
+      if (queuedByRule > 0) {
+        console.log(`[Background] Auto-upscale queued ${queuedByRule} completed entr${queuedByRule === 1 ? 'y' : 'ies'}`);
+      }
+    }
+
     const freshHistory2 = await getHistory();
     const pendingUpscales = freshHistory2.filter(e => e.upscaleStatus === 'upscaling' && !e.upscalePromptId);
     if (pendingUpscales.length > 0) {
@@ -282,6 +294,41 @@ async function hasBaseGenerationsInFlight(): Promise<boolean> {
 }
 
 /**
+ * Auto-queue upscales for completed entries that do not have an upscale state yet.
+ * Submission is still serialized by the normal queued-upscale path.
+ */
+async function queueAutoUpscalesForCompletedEntries(): Promise<number> {
+  const history = await getHistory();
+  const candidates = history.filter(e =>
+    e.imageStatus === 'done' &&
+    !e.upscaleStatus &&
+    !!e.baseImageUrl
+  );
+
+  for (const entry of candidates) {
+    await updatePromptEntry(entry.id, {
+      upscaleStatus: 'upscaling',
+      upscalePollAttempts: 0,
+    });
+  }
+
+  return candidates.length;
+}
+
+/**
+ * Manual trigger for auto-upscale scan.
+ * Used when user enables the setting so existing completed entries are picked up immediately.
+ */
+async function triggerAutoUpscaleScan(): Promise<void> {
+  const settings = await getSettings();
+  if (!settings.autoUpscaleWhenIdle) return;
+
+  await queueAutoUpscalesForCompletedEntries();
+  await ensurePollAlarm();
+  await handleAlarmTick();
+}
+
+/**
  * User-triggered upscale for a completed base image.
  * Queues the upscale — actual submission happens in alarm tick when no base generations are in-flight.
  * This prevents model thrashing (QwenImage UNET vs upscale models on same GPU).
@@ -348,7 +395,10 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 
   if (message.type === 'AUTO_DETECTED_PROMPT') {
     console.log(`[Background] Processing prompt: "${message.text?.substring(0, 50)}..."`);
-    handleAutoDetectedPrompt(message.text);
+    // Queue sequentially so duplicate check sees previously added entries
+    autoDetectQueue = autoDetectQueue.then(() => handleAutoDetectedPrompt(message.text)).catch(err => {
+      console.error('[Background] Auto-detect queue error:', err);
+    });
     sendResponse({ success: true });
   } else if (message.type === 'OPEN_POPUP') {
     chrome.action.openPopup();
@@ -368,6 +418,19 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   } else if (message.type === 'CANCEL_ALL') {
     handleCancelAll();
     sendResponse({ success: true });
+  } else if (message.type === 'DELETE_ENTRY') {
+    handleDeleteEntryMessage(message.entryId);
+    sendResponse({ success: true });
+  } else if (message.type === 'GET_IMAGE_PREVIEW') {
+    handleGetImagePreviewMessage(message.url)
+      .then(dataUrl => sendResponse({ success: !!dataUrl, dataUrl }))
+      .catch(() => sendResponse({ success: false }));
+    return true;
+  } else if (message.type === 'TRIGGER_AUTO_UPSCALE_SCAN') {
+    triggerAutoUpscaleScan()
+      .then(() => sendResponse({ success: true }))
+      .catch(() => sendResponse({ success: false }));
+    return true;
   }
 
   return true;
@@ -375,12 +438,10 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 
 async function handleStartGenerationMessage(entryId: string, text: string, isRegenerate?: boolean): Promise<void> {
   if (isRegenerate) {
-    const history = await getHistory();
-    const entry = history.find(e => e.id === entryId);
-    if (entry) {
-      const newCount = (entry.generationCount || 0) + 1;
-      await updatePromptEntry(entryId, { imageStatus: 'generating', generationCount: newCount });
-    }
+    // Regenerate creates a new history item so prior outputs remain intact.
+    const newEntry = await addPromptEntry(text);
+    await startGeneration(newEntry.id, newEntry.text);
+    return;
   }
   await startGeneration(entryId, text);
 }
@@ -420,6 +481,50 @@ async function handleCancelAll(): Promise<void> {
 
   await chrome.alarms.clear(POLL_ALARM_NAME);
   console.log('[Background] Cancelled all generations and upscales');
+}
+
+async function handleDeleteEntryMessage(entryId: string): Promise<void> {
+  const settings = await getSettings();
+  const history = await getHistory();
+  const entry = history.find(e => e.id === entryId);
+  if (!entry) return;
+
+  // Cancel active generation if needed
+  if (entry.imageStatus === 'generating' && entry.promptId) {
+    try { await cancelPrompt(entry.promptId, settings); } catch { /* ignore */ }
+  }
+
+  // Cancel active upscale if needed
+  if (entry.upscaleStatus === 'upscaling' && entry.upscalePromptId) {
+    try { await cancelPrompt(entry.upscalePromptId, settings); } catch { /* ignore */ }
+  }
+
+  await deletePromptEntry(entryId);
+}
+
+async function handleGetImagePreviewMessage(url: string): Promise<string | null> {
+  if (!url || typeof url !== 'string') return null;
+
+  try {
+    const response = await fetch(url);
+    if (!response.ok) return null;
+
+    const blob = await response.blob();
+    const buffer = await blob.arrayBuffer();
+    const bytes = new Uint8Array(buffer);
+    let binary = '';
+    const chunkSize = 0x8000;
+
+    for (let i = 0; i < bytes.length; i += chunkSize) {
+      const chunk = bytes.subarray(i, i + chunkSize);
+      binary += String.fromCharCode(...chunk);
+    }
+
+    const base64 = btoa(binary);
+    return `data:${blob.type || 'image/png'};base64,${base64}`;
+  } catch {
+    return null;
+  }
 }
 
 // --- Auto-detected prompt handler ---

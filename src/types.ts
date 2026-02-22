@@ -14,6 +14,7 @@ interface ComfyUISettings {
   workflowId: string;
   builtInWorkflow: BuiltInWorkflowType;
   autoSend: boolean;
+  autoUpscaleWhenIdle: boolean;
   negativePrompt: string;
   seed: number;
   steps: number;
@@ -136,6 +137,7 @@ const DEFAULT_SETTINGS: ComfyUISettings = {
   workflowId: 'default_workflow',
   builtInWorkflow: 'qwen-t2i',
   autoSend: false,
+  autoUpscaleWhenIdle: false,
   negativePrompt: 'dust, dots, stain',
   seed: -1,
   steps: 20,

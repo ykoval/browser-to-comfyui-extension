@@ -170,32 +170,15 @@
       "widgets_values": ["qwen_image_vae.safetensors", "cuda:1"]
     },
     {
-      "id": 121,
-      "type": "ImageScaleBy",
+      "id": 124,
+      "type": "SeedVR2VideoUpscaler",
       "pos": [2750, 130],
-      "size": [260, 82],
+      "size": [330, 386],
       "flags": {},
       "order": 20,
       "mode": 0,
       "inputs": [
-        { "name": "image", "type": "IMAGE", "link": 61 }
-      ],
-      "outputs": [
-        { "name": "IMAGE", "type": "IMAGE", "links": [62] }
-      ],
-      "properties": { "cnr_id": "comfy-core", "ver": "0.10.0", "Node name for S&R": "ImageScaleBy" },
-      "widgets_values": ["nearest-exact", 0.5]
-    },
-    {
-      "id": 124,
-      "type": "SeedVR2VideoUpscaler",
-      "pos": [3030, 130],
-      "size": [330, 386],
-      "flags": {},
-      "order": 21,
-      "mode": 0,
-      "inputs": [
-        { "name": "image", "type": "IMAGE", "link": 62 },
+        { "name": "image", "type": "IMAGE", "link": 61 },
         { "name": "dit", "type": "SEEDVR2_DIT", "link": 63 },
         { "name": "vae", "type": "SEEDVR2_VAE", "link": 64 }
       ],
@@ -203,7 +186,7 @@
         { "name": "IMAGE", "type": "IMAGE", "links": [65] }
       ],
       "properties": { "cnr_id": "seedvr2_videoupscaler", "ver": "2.5.24", "Node name for S&R": "SeedVR2VideoUpscaler" },
-      "widgets_values": [1, "fixed", 2160, 3840, 5, false, "lab", 0, 0, 0, 0, "cpu", false]
+      "widgets_values": [0, 2160, 4096, 1, false, "lab", "cpu"]
     },
     {
       "id": 103,
@@ -415,8 +398,7 @@
     [56, 118, 1, 6, 1, "STRING"],
     [57, 118, 1, 119, 0, "STRING"],
     [60, 204, 0, 120, 0, "IMAGE"],
-    [61, 120, 0, 121, 0, "IMAGE"],
-    [62, 121, 0, 124, 0, "IMAGE"],
+    [61, 120, 0, 124, 0, "IMAGE"],
     [63, 122, 0, 124, 1, "SEEDVR2_DIT"],
     [64, 123, 0, 124, 2, "SEEDVR2_VAE"],
     [65, 124, 0, 125, 0, "IMAGE"],

@@ -20,6 +20,7 @@ class PopupApp {
   private stepsInput: HTMLInputElement;
   private cfgInput: HTMLInputElement;
   private enableSeparatorToggle: HTMLInputElement;
+  private autoUpscaleWhenIdleToggle: HTMLInputElement;
   private aspectRatioSelect: HTMLSelectElement;
   private megapixelInput: HTMLInputElement;
   private promptStartMarkerInput: HTMLInputElement;
@@ -77,6 +78,7 @@ class PopupApp {
     this.stepsInput = document.getElementById('steps') as HTMLInputElement;
     this.cfgInput = document.getElementById('cfg') as HTMLInputElement;
     this.enableSeparatorToggle = document.getElementById('enableSeparator') as HTMLInputElement;
+    this.autoUpscaleWhenIdleToggle = document.getElementById('autoUpscaleWhenIdle') as HTMLInputElement;
     this.aspectRatioSelect = document.getElementById('aspectRatio') as HTMLSelectElement;
     this.megapixelInput = document.getElementById('megapixel') as HTMLInputElement;
     this.promptStartMarkerInput = document.getElementById('promptStartMarker') as HTMLInputElement;
@@ -187,7 +189,13 @@ class PopupApp {
         this.autoDetectToggle.checked = false;
         this.currentDomainLabel.textContent = 'Restricted page';
       } else {
-        this.autoDetectToggle.checked = await isAutoDetectEnabled(this.currentDomain);
+        const enabled = await isAutoDetectEnabled(this.currentDomain);
+        this.autoDetectToggle.checked = enabled;
+
+        // Re-inject after page refresh/navigation so the floating UI stays in sync with the toggle state.
+        if (enabled) {
+          await this.injectContentScript();
+        }
       }
     }
   }
@@ -218,6 +226,7 @@ class PopupApp {
     this.stepsInput.value = String(this.settings.steps);
     this.cfgInput.value = String(this.settings.cfg);
     this.enableSeparatorToggle.checked = this.settings.enableSeparator;
+    this.autoUpscaleWhenIdleToggle.checked = this.settings.autoUpscaleWhenIdle;
     this.aspectRatioSelect.value = this.settings.aspectRatio;
     this.megapixelInput.value = String(this.settings.megapixel);
     this.builtInWorkflowSelect.value = this.settings.builtInWorkflow || 'qwen-t2i';
@@ -245,6 +254,7 @@ class PopupApp {
     this.generateBtn.addEventListener('click', this.handleGenerate.bind(this));
     this.openInComfyBtn.addEventListener('click', this.handleOpenInComfy.bind(this));
     this.autoSendToggle.addEventListener('change', this.handleAutoSendToggle.bind(this));
+    this.autoUpscaleWhenIdleToggle.addEventListener('change', this.handleAutoUpscaleWhenIdleToggle.bind(this));
     this.saveSettingsBtn.addEventListener('click', this.handleSaveSettings.bind(this));
     this.tabBtns.forEach(btn => btn.addEventListener('click', this.handleTabClick.bind(this)));
     this.clearHistoryBtn.addEventListener('click', this.handleClearHistory.bind(this));
@@ -594,18 +604,26 @@ class PopupApp {
   }
 
   private async handleSaveSettings() {
+    const wasAutoUpscaleEnabled = this.settings.autoUpscaleWhenIdle;
+
     this.settings.serverAddress = this.serverAddressInput.value;
     this.settings.negativePrompt = this.negativePromptInput.value;
     this.settings.seed = parseInt(this.seedInput.value) || -1;
     this.settings.steps = parseInt(this.stepsInput.value) || 20;
     this.settings.cfg = parseFloat(this.cfgInput.value) || 4;
     this.settings.enableSeparator = this.enableSeparatorToggle.checked;
+    this.settings.autoUpscaleWhenIdle = this.autoUpscaleWhenIdleToggle.checked;
     this.settings.aspectRatio = this.aspectRatioSelect.value;
     this.settings.megapixel = parseFloat(this.megapixelInput.value) || 2.5;
     this.settings.builtInWorkflow = this.builtInWorkflowSelect.value as BuiltInWorkflowType;
     this.settings.promptStartMarker = this.promptStartMarkerInput.value || '[PROMPT START]';
     this.settings.promptEndMarker = this.promptEndMarkerInput.value || '[PROMPT END]';
     await saveSettings(this.settings);
+
+    if (!wasAutoUpscaleEnabled && this.settings.autoUpscaleWhenIdle) {
+      chrome.runtime.sendMessage({ type: 'TRIGGER_AUTO_UPSCALE_SCAN' });
+    }
+
     this.settingsStatus.textContent = 'Settings saved!';
     setTimeout(() => { this.settingsStatus.textContent = ''; }, 2000);
   }
@@ -716,6 +734,18 @@ class PopupApp {
   private async handleAutoSendToggle() {
     this.settings.autoSend = this.autoSendToggle.checked;
     await saveSettings(this.settings);
+  }
+
+  private async handleAutoUpscaleWhenIdleToggle() {
+    const wasEnabled = this.settings.autoUpscaleWhenIdle;
+    this.settings.autoUpscaleWhenIdle = this.autoUpscaleWhenIdleToggle.checked;
+    await saveSettings(this.settings);
+
+    if (!wasEnabled && this.settings.autoUpscaleWhenIdle) {
+      chrome.runtime.sendMessage({ type: 'TRIGGER_AUTO_UPSCALE_SCAN' });
+      this.settingsStatus.textContent = 'Auto-upscale enabled';
+      setTimeout(() => { this.settingsStatus.textContent = ''; }, 1500);
+    }
   }
 
   private async handleOpenInComfy() {

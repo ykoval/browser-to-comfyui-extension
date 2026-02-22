@@ -3,7 +3,6 @@ import baseWorkflowTemplate from './workflows/qwen-t2i-base.json';
 import upscaleNodesTemplate from './workflows/qwen-t2i-upscale.json';
 import liteGraphWorkflowTemplate from './workflows/qwen-t2i-litegraph.json';
 import seedvrBaseWorkflowTemplate from './workflows/qwen-t2i-seedvr-base.json';
-import seedvrUpscaleNodesTemplate from './workflows/qwen-t2i-seedvr-upscale.json';
 import seedvrLiteGraphWorkflowTemplate from './workflows/qwen-t2i-seedvr-litegraph.json';
 import seedvrUpscaleStandaloneTemplate from './workflows/seedvr-upscale-standalone.json';
 import { getActiveWorkflow, applyMappingsToWorkflow } from './workflow-utils';
@@ -161,9 +160,11 @@ async function cancelPrompt(promptId: string, settings: ComfyUISettings): Promis
 }
 
 async function deletePromptEntry(id: string): Promise<void> {
-  const history = await getHistory();
-  const filtered = history.filter(entry => entry.id !== id);
-  await saveHistory(filtered);
+  return withHistoryLock(async () => {
+    const history = await getHistory();
+    const filtered = history.filter(entry => entry.id !== id);
+    await saveHistory(filtered);
+  });
 }
 
 async function addPromptEntry(text: string): Promise<PromptEntry> {
@@ -184,12 +185,14 @@ async function addPromptEntry(text: string): Promise<PromptEntry> {
 }
 
 async function updatePromptEntry(id: string, updates: Partial<PromptEntry>): Promise<void> {
-  const history = await getHistory();
-  const index = history.findIndex(entry => entry.id === id);
-  if (index !== -1) {
-    history[index] = { ...history[index], ...updates };
-    await saveHistory(history);
-  }
+  return withHistoryLock(async () => {
+    const history = await getHistory();
+    const index = history.findIndex(entry => entry.id === id);
+    if (index !== -1) {
+      history[index] = { ...history[index], ...updates };
+      await saveHistory(history);
+    }
+  });
 }
 
 function preparePromptText(text: string, enableSeparator: boolean): string {
@@ -478,6 +481,16 @@ function extractBaseNumber(filename: string): string | null {
   return match ? match[1] : null;
 }
 
+/**
+ * Extract a stable stem from ComfyUI SaveImage filename by removing only the trailing counter segment.
+ * Example:
+ *   QI_T2I_20260222_153500_00001_.png -> QI_T2I_20260222_153500
+ */
+function extractBaseStem(filename: string): string {
+  const withoutExt = filename.replace(/\.[^.]+$/, '');
+  return withoutExt.replace(/_\d+_$/, '');
+}
+
 /** Get today's date as DD-MM-YYYY for ComfyUI output subfolder. */
 function getDatePrefix(): string {
   const d = new Date();
@@ -485,6 +498,18 @@ function getDatePrefix(): string {
   const mm = String(d.getMonth() + 1).padStart(2, '0');
   const yyyy = d.getFullYear();
   return `${dd}-${mm}-${yyyy}`;
+}
+
+/** Per-run token to avoid filename collisions when files are deleted/reused. */
+function getRunToken(): string {
+  const d = new Date();
+  const yy = String(d.getFullYear()).slice(-2);
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  const hh = String(d.getHours()).padStart(2, '0');
+  const min = String(d.getMinutes()).padStart(2, '0');
+  const sec = String(d.getSeconds()).padStart(2, '0');
+  return `${dd}${mm}${yy}${hh}${min}${sec}`;
 }
 
 /**
@@ -530,10 +555,10 @@ async function sendSeedVRUpscale(baseImageInfo: ImageInfo, settings: ComfyUISett
   upscaleWorkflow["124"].inputs.seed = Math.floor(Math.random() * 4294967295);
 
   // Set upscale filename to include base image number for easy matching:
-  // Base: QI_T2I_00082_.png → Upscale prefix: QI_T2I_00082_UP → saves as QI_T2I_00082_UP_00001_.png
-  const baseNum = extractBaseNumber(baseImageInfo.filename);
-  if (baseNum && upscaleWorkflow["81"]) {
-    upscaleWorkflow["81"].inputs.filename_prefix = `Qwen image/${getDatePrefix()}/QI_T2I_${baseNum}_UP`;
+  // Base: QI_T2I_20260222_153500_00001_.png -> Upscale prefix: QI_T2I_20260222_153500_UP
+  const baseStem = extractBaseStem(baseImageInfo.filename);
+  if (baseStem && upscaleWorkflow["81"]) {
+    upscaleWorkflow["81"].inputs.filename_prefix = `Qwen image/${getDatePrefix()}/${baseStem}_UP`;
     console.log('[sendSeedVRUpscale] Upscale prefix set to:', upscaleWorkflow["81"].inputs.filename_prefix);
   }
 
@@ -578,6 +603,27 @@ async function sendSeedVRUpscale(baseImageInfo: ImageInfo, settings: ComfyUISett
 }
 
 /**
+ * Recover ComfyUI image info from a /view URL.
+ * Example:
+ *   http://host/view?filename=QI_T2I_00037_.png&subfolder=Qwen%20image%2F20-02-2026&type=output
+ */
+function extractImageInfoFromViewUrl(imageUrl?: string): ImageInfo | null {
+  if (!imageUrl) return null;
+
+  try {
+    const url = new URL(imageUrl);
+    const filename = url.searchParams.get('filename');
+    const subfolder = url.searchParams.get('subfolder') || '';
+    const type = url.searchParams.get('type') || 'output';
+
+    if (!filename) return null;
+    return { filename, subfolder, type };
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Build and submit an upscale workflow for a completed base image.
  * - qwen-t2i: re-submits full workflow with KSampler upscale nodes merged
  * - qwen-t2i-seedvr: uses standalone SeedVR upscale workflow via sendSeedVRUpscale
@@ -591,8 +637,13 @@ async function buildAndSendUpscale(
   const workflowType = entry.workflowType || settings.builtInWorkflow;
 
   if (workflowType === 'qwen-t2i-seedvr') {
-    if (!entry.baseImageInfo) throw new Error('No base image info for SeedVR upscale');
-    return sendSeedVRUpscale(entry.baseImageInfo, settings, entry.text);
+    const recoveredInfo =
+      entry.baseImageInfo ||
+      extractImageInfoFromViewUrl(entry.baseImageUrl) ||
+      extractImageInfoFromViewUrl(entry.imageUrl);
+
+    if (!recoveredInfo) throw new Error('No base image info for SeedVR upscale');
+    return sendSeedVRUpscale(recoveredInfo, settings, entry.text);
   }
 
   // qwen-t2i: rebuild full workflow with upscale nodes merged
@@ -620,12 +671,11 @@ async function buildAndSendUpscale(
   }
   Object.assign(workflow, upscaleNodes);
 
-  // Set upscale filename to include base image number for easy matching:
-  // Base: QI_T2I_00082_.png → Upscale prefix: QI_T2I_00082_UP → saves as QI_T2I_00082_UP_00001_.png
+  // Set upscale filename from base stem for stable pairing.
   if (entry.baseImageInfo && workflow["81"]) {
-    const baseNum = extractBaseNumber(entry.baseImageInfo.filename);
-    if (baseNum) {
-      workflow["81"].inputs.filename_prefix = `Qwen image/${getDatePrefix()}/QI_T2I_${baseNum}_UP`;
+    const baseStem = extractBaseStem(entry.baseImageInfo.filename);
+    if (baseStem) {
+      workflow["81"].inputs.filename_prefix = `Qwen image/${getDatePrefix()}/${baseStem}_UP`;
       console.log('[buildAndSendUpscale] Upscale prefix set to:', workflow["81"].inputs.filename_prefix);
     }
   }
@@ -847,7 +897,7 @@ function buildComfyUIWorkflow(payload: ComfyUIPayload, workflowType: BuiltInWork
     workflow["114"].inputs.preset = seedvrDims.preset;
 
     // Date-based output subfolder
-    workflow["79"].inputs.filename_prefix = `Qwen image/${getDatePrefix()}/QI_T2I`;
+    workflow["79"].inputs.filename_prefix = `Qwen image/${getDatePrefix()}/QI_T2I_${getRunToken()}`;
 
     // SeedVR base-only: no upscale nodes merged (two-stage to avoid OOM)
     console.log('[buildComfyUIWorkflow] SeedVR base-only workflow (upscale sent separately)');
@@ -884,7 +934,7 @@ function buildComfyUIWorkflow(payload: ComfyUIPayload, workflowType: BuiltInWork
   workflow["114"].inputs.preset = stdDims.preset;
 
   // Date-based output subfolder
-  workflow["79"].inputs.filename_prefix = `Qwen image/${getDatePrefix()}/QI_T2I`;
+  workflow["79"].inputs.filename_prefix = `Qwen image/${getDatePrefix()}/QI_T2I_${getRunToken()}`;
 
   // Base-only: no upscale nodes merged. Upscale is user-triggered separately.
   console.log('[buildComfyUIWorkflow] Base-only workflow (no upscale merge)');
