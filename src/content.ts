@@ -1025,14 +1025,18 @@ class PromptAutoDetector {
   }
 
   private appendActions(container: HTMLElement, entry: HistoryEntry) {
-    const makeBtn = (label: string, onClick: () => void, extraClass = '') => {
+    const makeBtn = (label: string, onClick: () => void, extraClass = ''): HTMLButtonElement => {
       const btn = document.createElement('button');
       btn.type = 'button';
       btn.className = `comfyui-action ${extraClass}`.trim();
       btn.textContent = label;
       btn.addEventListener('click', onClick);
       container.appendChild(btn);
+      return btn;
     };
+
+    const copyBtn = makeBtn('Copy', () => this.copyPromptText(entry.text));
+    copyBtn.title = 'Copy prompt';
 
     if (entry.imageStatus === 'pending') {
       makeBtn('Generate', () => this.startGeneration(entry, false), 'primary');
@@ -1063,6 +1067,12 @@ class PromptAutoDetector {
     }
 
     makeBtn('Delete', () => this.deleteEntry(entry.id), 'danger');
+  }
+
+  private copyPromptText(text: string) {
+    navigator.clipboard.writeText(text).catch((error) => {
+      console.error('[Content] Copy prompt failed:', error);
+    });
   }
 
   private getDisplayTitle(text: string): string {

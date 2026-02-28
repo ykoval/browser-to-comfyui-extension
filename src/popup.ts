@@ -801,10 +801,47 @@ class PopupApp {
       const content = document.createElement('div');
       content.className = 'history-item-content';
 
+      const promptRow = document.createElement('div');
+      promptRow.className = 'prompt-row';
+
       const text = document.createElement('div');
       text.className = 'prompt-text';
       text.textContent = entry.text;
       text.title = entry.text;
+
+      const copyBtn = document.createElement('button');
+      copyBtn.className = 'btn-copy-prompt';
+      copyBtn.innerHTML = `
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <rect x="9" y="9" width="10" height="10" rx="2"></rect>
+          <rect x="5" y="5" width="10" height="10" rx="2"></rect>
+        </svg>
+      `;
+      copyBtn.title = 'Copy prompt';
+      copyBtn.setAttribute('aria-label', 'Copy prompt');
+      copyBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        navigator.clipboard.writeText(entry.text).then(() => {
+          copyBtn.classList.add('copied');
+          copyBtn.innerHTML = `
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M20 6 9 17l-5-5"></path>
+            </svg>
+          `;
+          setTimeout(() => {
+            copyBtn.classList.remove('copied');
+            copyBtn.innerHTML = `
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <rect x="9" y="9" width="10" height="10" rx="2"></rect>
+                <rect x="5" y="5" width="10" height="10" rx="2"></rect>
+              </svg>
+            `;
+          }, 900);
+        });
+      });
+
+      promptRow.appendChild(text);
+      promptRow.appendChild(copyBtn);
 
       const meta = document.createElement('div');
       meta.className = 'meta';
@@ -846,7 +883,7 @@ class PopupApp {
       const timingHtml = timingParts.length > 0 ? ` · ${timingParts.join(' + ')}` : '';
       meta.innerHTML = `<span class="timestamp">${getRelativeTime(entry.createdAt)}</span> · <span class="status status-${entry.imageStatus}">${statusLabel}</span>${timingHtml}`;
 
-      content.appendChild(text);
+      content.appendChild(promptRow);
       content.appendChild(meta);
       item.appendChild(content);
 
