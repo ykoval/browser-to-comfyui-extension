@@ -17,16 +17,16 @@ src/
 ├── background.ts      # Service worker: alarm-based generation orchestrator
 ├── popup.ts           # Popup UI: 3-tab interface (read-only view, sends messages to background)
 ├── content.ts         # Content script: auto-detect prompts on pages
-├── options.ts         # Options page (minimal, redirects to popup)
+├── options.ts         # Legacy/simple options page
 ├── types.ts           # Interfaces, constants, defaults
 ├── utils.ts           # Storage helpers, API client, workflow builder
 ├── workflow-utils.ts  # Workflow import & mapping detection
 └── workflows/
-    ├── qwen-t2i-base.json           # Base T2I workflow (KSampler upscale)
-    ├── qwen-t2i-upscale.json        # KSampler upscale nodes
+    ├── qwen-t2i-base.json           # Base T2I workflow
+    ├── qwen-t2i-upscale.json        # KSampler upscale nodes (submitted separately)
     ├── qwen-t2i-litegraph.json      # LiteGraph format for PNG embedding
     ├── qwen-t2i-seedvr-base.json    # Base T2I workflow (SeedVR)
-    ├── qwen-t2i-seedvr-upscale.json # SeedVR2 upscale nodes (for merge into base)
+    ├── qwen-t2i-seedvr-upscale.json # Legacy SeedVR2 upscale nodes
     ├── seedvr-upscale-standalone.json # SeedVR2 standalone upscale (two-stage, LoadImage entry)
     └── qwen-t2i-seedvr-litegraph.json # SeedVR LiteGraph format
 ```
@@ -53,6 +53,12 @@ src/
 | `AUTO_DETECTED_PROMPT` | content → background | Send detected prompt |
 | `START_GENERATION` | popup → background | Request generation (entryId, text, isRegenerate?) |
 | `CANCEL_GENERATION` | popup → background | Cancel generation (entryId, promptId) |
+| `START_UPSCALE` | popup/content → background | Queue upscale for a completed base image |
+| `CANCEL_UPSCALE` | popup/content → background | Cancel active or queued upscale |
+| `CANCEL_ALL` | popup → background | Cancel all active/queued generation and upscale work |
+| `DELETE_ENTRY` | popup/content → background | Delete prompt entry, cancelling active work first |
+| `GET_IMAGE_PREVIEW` | content → background | Fetch image and return data URL for injected UI preview |
+| `TRIGGER_AUTO_UPSCALE_SCAN` | popup → background | Queue eligible completed entries when auto-upscale is enabled |
 | `OPEN_POPUP` | popup → background | Open extension popup |
 
 ### ComfyUI Integration
@@ -69,14 +75,20 @@ src/
 1. Clone base workflow JSON
 2. Apply dynamic parameters (seed, steps, cfg, prompt, aspect ratio, megapixels)
 3. Compute div-112 fallback dimensions via `computeDimensionsForRatio()`
-4. For qwen-t2i: merge KSampler upscale nodes (single-stage)
-5. For qwen-t2i-seedvr: base-only (NO upscale merge — two-stage to avoid OOM)
-6. Return formatted payload for `/prompt`
+4. Set date/run-token based output prefix on node 79
+5. Build matching LiteGraph metadata for PNG drag-and-drop recovery
+6. Return a base-only payload for `/prompt`
 
-**SeedVR Two-Stage Execution** (avoids OOM on cuda:1):
+**Upscale Building** (`buildAndSendUpscale` in utils.ts):
+1. Upscale is queued separately via `upscaleStatus`
+2. For qwen-t2i: rebuild base workflow, merge `qwen-t2i-upscale.json`, submit as separate prompt, poll node 81
+3. For qwen-t2i-seedvr: fetch base image, upload to `/upload/image`, submit `seedvr-upscale-standalone.json`, poll node 81
+4. Upscale submission waits until all base generations are done to avoid model thrashing
+
+**SeedVR Two-Prompt Execution** (avoids OOM on cuda:1):
 1. Stage 1: Submit base workflow → poll node 79 for smoothed base image
-2. Fetch base image from ComfyUI, upload to `/upload/image` (input folder)
-3. Stage 2: Submit standalone SeedVR upscale workflow with LoadImage node → poll node 81
+2. When upscale is queued, fetch base image from ComfyUI and upload to `/upload/image` (input folder)
+3. Submit standalone SeedVR upscale workflow with LoadImage node → poll node 81
 4. Reason: QwenImage UNET (~19GB on cuda:1) must unload before SeedVR models can load
 
 **Smoothing Pipeline** (both workflows):
@@ -95,10 +107,12 @@ interface ComfyUISettings {
   workflowId: string;
   builtInWorkflow: BuiltInWorkflowType; // 'qwen-t2i' | 'qwen-t2i-seedvr'
   autoSend: boolean;          // Generate on capture
+  autoUpscaleWhenIdle: boolean; // Queue upscales when no base generations are running
   negativePrompt: string;
   seed: number;               // -1 for random
   steps: number;              // Default: 20
   cfg: number;                // Default: 4
+  headers: Record<string, string>;
   enableSeparator: boolean;   // Parse === delimiter
   aspectRatio: string;        // e.g., "16:9 ▭"
   megapixel: number;          // Default: 2.5
@@ -106,21 +120,38 @@ interface ComfyUISettings {
   promptEndMarker: string;    // Default: [PROMPT END]
 }
 
-type GenerationStage = 'polling-base' | 'uploading-upscale' | 'polling-upscale';
+type GenerationStage = 'queued' | 'polling';
+
+interface ImageInfo {
+  filename: string;
+  subfolder: string;
+  type: string;
+}
 
 interface PromptEntry {
   id: string;                 // UUID
   text: string;               // Prompt text
   createdAt: number;          // Timestamp
   imageStatus: 'pending' | 'generating' | 'done' | 'error';
-  imageUrl?: string;          // Generated image URL
-  promptId?: string;          // ComfyUI prompt_id (updates: base → upscale for SeedVR)
+  imageUrl?: string;          // Best available image URL (base or upscaled)
+  baseImageUrl?: string;      // Node 79 output URL
+  baseImageInfo?: ImageInfo;  // Node 79 file info for upscale submission
+  promptId?: string;          // Base ComfyUI prompt_id
   generationCount?: number;   // Times regenerated
   // Alarm-based orchestration fields (set by background service worker)
-  generationStage?: GenerationStage;    // Current stage in pipeline
-  basePromptId?: string;                // Original prompt_id (preserved during SeedVR upscale)
-  pollAttempts?: number;                // Alarm ticks spent polling
-  workflowType?: BuiltInWorkflowType;  // Workflow used (needed after SW restart)
+  generationStage?: GenerationStage;  // queued = waiting for SeedVR slot; polling = active base prompt
+  basePromptId?: string;              // Original base prompt_id
+  pollAttempts?: number;              // Base alarm ticks spent polling
+  workflowType?: BuiltInWorkflowType; // Workflow used (needed after SW restart)
+  // Upscale state (separate from base generation)
+  upscaleStatus?: 'upscaling' | 'done' | 'error';
+  upscalePromptId?: string;           // Present only after queued upscale is submitted
+  upscalePollAttempts?: number;
+  // Timing samples
+  generationStartedAt?: number;
+  generationDoneAt?: number;
+  upscaleStartedAt?: number;
+  upscaleDoneAt?: number;
 }
 
 interface ComfyUIPayload {
@@ -260,24 +291,29 @@ popup.ts ──message──→ background.ts ──fetch──→ ComfyUI
 **Alarm-based polling** (survives popup closure + service worker suspension):
 - Uses `chrome.alarms` with 30-second intervals (Chrome minimum)
 - Alarm name: `poll-generations`
-- Alarm auto-created when generation starts, auto-cleared when no in-flight entries
-- Service worker startup recovery: re-establishes alarm if `generating` entries exist
+- Alarm auto-created when generation/upscale work starts, auto-cleared when no in-flight entries remain
+- Service worker startup recovery: re-establishes alarm if `generating` or `upscaling` entries exist
 
-**State machine** (per PromptEntry):
-- `polling-base` → check node 79 for base image (SeedVR only)
-- `uploading-upscale` → upload base image + submit SeedVR upscale workflow
-- `polling-upscale` → check node 81 for upscaled output (both workflows)
+**Base generation state** (per PromptEntry):
+- `imageStatus: 'generating'`, `generationStage: 'queued'`, no `promptId` → waiting for a SeedVR submission slot
+- `imageStatus: 'generating'`, `generationStage: 'polling'`, with `promptId` → active base prompt, check node 79
+- `imageStatus: 'done'` → base image is ready, with `baseImageUrl` and usually `baseImageInfo`
+
+**Upscale state** (separate from base generation):
+- `upscaleStatus: 'upscaling'`, no `upscalePromptId` → queued until all base generations finish
+- `upscaleStatus: 'upscaling'`, with `upscalePromptId` → active upscale prompt, check node 81
+- `upscaleStatus: 'done'` → `imageUrl` points at the upscaled image
 
 **Timeout limits**:
-- Standard qwen-t2i: 12 ticks × 30s = 6 minutes
-- SeedVR base polling: 6 ticks × 30s = 3 minutes
-- SeedVR upscale polling: 12 ticks × 30s = 6 minutes
+- Base generation polling: `MAX_POLL_TICKS_BASE = 12` → 6 minutes
+- Upscale polling: `MAX_POLL_TICKS_UPSCALE = 12` → 6 minutes
 
 **Quick first check**: `setTimeout(() => handleAlarmTick(), 5000)` after submission for fast-completing workflows.
 
 ### Image Check Functions (Non-Blocking)
-- `checkHistoryForUpscaledImage(promptId, settings)` — single fetch, checks node 81, fallback to 79
+- `checkHistoryForUpscaledImage(promptId, settings)` — single fetch, checks node 81, falls back to node 79 only if the workflow errored
 - `checkHistoryForBaseImage(promptId, settings)` — single fetch, checks node 79
+- `buildAndSendUpscale(entry, payload, settings)` — submits the correct separate upscale workflow for the entry's workflow type
 - `sendSeedVRUpscale(baseImageInfo, settings)` — uploads base image + submits standalone upscale
 - Returns `HistoryCheckResult { status: 'ready' | 'waiting' | 'error', imageUrl?, imageInfo? }`
 
@@ -300,7 +336,7 @@ const ASPECT_RATIOS = [
 
 1. **Storage helpers**: getSettings, saveSettings, history CRUD
 2. **API client**: sendToComfyUI, pollForImage, error handling
-3. **Workflow builder**: parameter application, upscale merging
+3. **Workflow builder**: parameter application, base workflow submission, separate upscale submission
 4. **Prompt extraction**: marker parsing, deduplication
 
 ## Built-in Workflows
@@ -311,7 +347,7 @@ const ASPECT_RATIOS = [
 | `qwen-t2i-seedvr` | Qwen T2I + SeedVR | SeedVR2VideoUpscaler | Higher quality, slower |
 
 Selection via `builtInWorkflow` setting in UI dropdown.
-Upscale is always enabled — qwen-t2i merges upscale in single prompt, qwen-t2i-seedvr uses two-stage execution (separate prompts) to avoid OOM.
+Base generation is submitted first for both built-ins. Upscale is queued separately by the user or by `autoUpscaleWhenIdle`; qwen-t2i merges KSampler upscale nodes into the separate upscale prompt, while qwen-t2i-seedvr uses a standalone SeedVR prompt to avoid OOM.
 
 ## Common Modifications
 
@@ -326,23 +362,22 @@ Change `promptStartMarker` / `promptEndMarker` in `DEFAULT_SETTINGS`
 
 ### Adjust Polling Behavior
 - Alarm interval: `background.ts` (`POLL_INTERVAL_MINUTES = 0.5`, 30s minimum)
-- Standard timeout: `MAX_POLL_TICKS_STANDARD = 12` (6 minutes)
-- SeedVR base timeout: `MAX_POLL_TICKS_SEEDVR_BASE = 6` (3 minutes)
-- SeedVR upscale timeout: `MAX_POLL_TICKS_SEEDVR_UPSCALE = 12` (6 minutes)
+- Base timeout: `MAX_POLL_TICKS_BASE = 12` (6 minutes)
+- Upscale timeout: `MAX_POLL_TICKS_UPSCALE = 12` (6 minutes)
 - Popup is read-only — no polling, reacts to `chrome.storage.local.onChanged`
 
 ## File Size Reference
 
 | File | Lines | Purpose |
 |------|-------|---------|
-| popup.ts | ~780 | UI logic (read-only, message-sender) |
-| popup.css | ~718 | Styling |
-| utils.ts | ~480 | Core utilities, API client, workflow builder |
-| content.ts | ~308 | Auto-detection |
-| background.ts | ~322 | Alarm-based generation orchestrator |
+| popup.ts | ~1229 | UI logic (read-only, message-sender) |
+| popup.css | ~857 | Styling |
+| utils.ts | ~1093 | Core utilities, API client, workflow builder |
+| content.ts | ~1205 | Auto-detection and injected session UI |
+| background.ts | ~582 | Alarm-based generation/upscale orchestrator |
 | workflow-utils.ts | ~216 | Workflow management |
-| types.ts | ~130 | Type definitions |
-| popup.html | ~127 | UI structure |
+| types.ts | ~156 | Type definitions |
+| popup.html | ~143 | UI structure |
 
 ## Documentation
 
