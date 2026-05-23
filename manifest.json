@@ -14,12 +14,11 @@
   "host_permissions": [
     "http://127.0.0.1:8188/*",
     "http://localhost:8188/*",
-    "http://192.168.50.143:8188/*",
     "http://*/*",
     "https://*/*"
   ],
   "content_security_policy": {
-    "extension_pages": "script-src 'self'; object-src 'self'; img-src 'self' http://127.0.0.1:8188 http://localhost:8188 http://192.168.50.143:8188 data: blob:;"
+    "extension_pages": "script-src 'self'; object-src 'self'; img-src 'self' http: https: data: blob:;"
   },
   "background": {
     "service_worker": "dist/background.js",

@@ -180,7 +180,7 @@ for image generation. Include style, quality, and technical details.
 5. Workflow request sent to ComfyUI API
 
 **Configuration:**
-- ComfyUI server address (default: `http://192.168.50.143:8188`)
+- ComfyUI server address (default: `http://127.0.0.1:8188`)
 - Generation settings (steps, CFG, seed, megapixels)
 - Upscale toggle (enable 4x upscaling in ComfyUI)
 - Markers (customizable start/end markers)

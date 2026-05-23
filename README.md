@@ -1,159 +1,177 @@
-# Browser to ComfyUI Extension
+# ComfyUI Prompt Manager
 
-A Chrome extension that allows you to save prompts from any website and send them to a local ComfyUI instance for image generation.
+A Chrome Manifest V3 extension for collecting image prompts from the web, managing them in a browser-side history, and sending them directly to a local or networked ComfyUI server.
 
----
+The extension is built for people who ideate in a browser, collect prompts from pages or AI chats, and want a small control center for sending those prompts into ComfyUI without copy/pasting workflow JSON by hand.
 
-## Complete Asset Creation Workflow
+## What It Does
 
-This extension is part of a two-tool workflow for AI-generated stock content. Here's how the pieces fit together:
+ComfyUI Prompt Manager turns Chrome into a prompt capture and generation companion:
 
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                        COMPLETE WORKFLOW OVERVIEW                           │
-├─────────────────────────────────────────────────────────────────────────────┤
-│                                                                             │
-│  1. IDEATION & PROMPT CREATION (Browser)                                    │
-│     ├── Chat with AI (Claude, ChatGPT, etc.) to develop ideas              │
-│     ├── Research trends, search for details                                 │
-│     └── AI outputs formatted prompts with [PROMPT START]...[PROMPT END]    │
-│                                                                             │
-│  2. PROMPT CAPTURE (This Extension)  ◄── YOU ARE HERE                      │
-│     ├── Extension auto-detects prompts between markers                      │
-│     ├── Prompts include title/keywords section (separated by ===)          │
-│     └── Extension fires requests to ComfyUI API                            │
-│                                                                             │
-│  3. IMAGE GENERATION (ComfyUI)                                              │
-│     ├── Receives workflow with prompt from extension                        │
-│     ├── Generates images using loaded models                                │
-│     └── Saves PNG files with embedded workflow metadata                     │
-│                                                                             │
-│  4. UPSCALING (Topaz Photo AI) [Manual Step]                               │
-│     ├── Open generated PNGs in Topaz                                        │
-│     ├── Upscale to higher resolution                                        │
-│     └── Save with "-topaz-" suffix (enables auto-pairing)                  │
-│                                                                             │
-│  5. METADATA & UPLOAD (ComfyUI to Adobe Stock CSV App)                     │
-│     ├── Scan folder → detects originals + upscales                         │
-│     ├── Extract prompts from PNG metadata                                   │
-│     ├── Generate Adobe Stock metadata via LM Studio                         │
-│     ├── Optimize keywords with Google Trends                                │
-│     ├── Export CSV + Upload via SFTP                                        │
-│     └── Submit to Adobe Stock Contributor Portal                            │
-│                                                                             │
-└─────────────────────────────────────────────────────────────────────────────┘
-```
+- Capture selected text from any regular web page with the context menu or `Ctrl+Shift+P`.
+- Detect prompts automatically when pages contain configurable start/end markers.
+- Scan the current page or pasted text for multiple marked prompts.
+- Keep a local prompt history with generation status, thumbnails, copy actions, import/export, and delete controls.
+- Send prompts to ComfyUI using built-in Qwen Image workflows or imported custom workflows.
+- Track base image generation and optional upscale jobs from the popup and injected page UI.
+- Recover prompts from ComfyUI-generated PNG metadata.
 
-### Related Projects
+## Core Features
 
-| Project | Purpose | Location |
-|---------|---------|----------|
-| **Browser to ComfyUI Extension** | Captures prompts from browser, sends to ComfyUI | This project |
-| **ComfyUI to Adobe Stock CSV** | Processes outputs, generates metadata, uploads | `comfy-folder-adobe-csv/` |
+### Prompt Capture
 
-### Prompt Format Convention
+- Right-click selected text and choose "Save as Prompt".
+- Use the keyboard shortcut `Ctrl+Shift+P` on Windows/Linux or `Command+Shift+P` on macOS.
+- Paste prompts manually into the popup and generate from there.
+- Enable per-site automatic detection for prompt blocks between markers.
+- Run one-off scans on the current page or pasted page content.
 
-When chatting with AI to create prompts, use this format:
+### Prompt Format Support
 
-```
+The default detector looks for prompts between:
+
+```text
 [PROMPT START]
-Title: Serene Mountain Lake at Golden Hour
-Keywords: mountain, lake, sunset, nature, landscape, peaceful, reflection
-===
-A breathtaking view of a crystal clear mountain lake during golden hour,
-with snow-capped peaks reflecting in the still water, warm orange and
-pink clouds in the sky, photorealistic, 8k quality
+...
 [PROMPT END]
 ```
 
-- **Markers**: `[PROMPT START]` and `[PROMPT END]` - detected by this extension
-- **Title/Keywords**: Pre-fills metadata fields in the CSV app
-- **Separator**: `===` divides metadata from generation prompt
-- **Prompt**: The actual text sent to ComfyUI for image generation
+Prompts can include metadata before an `===` separator:
 
-### AI Chat Rules for Prompt Generation
+```text
+[PROMPT START]
+Title: Serene Mountain Lake at Golden Hour
+Keywords: mountain, lake, sunset, nature, landscape, peaceful, reflection
+Aspect Ratio: 16:9
+Negative: dust, dots, stain
+===
+A photorealistic view of a crystal clear mountain lake during golden hour,
+with snow-capped peaks reflected in still water, warm clouds, detailed
+natural lighting, high quality
+[PROMPT END]
+```
 
-When working with AI assistants, instruct them to:
+The extension currently recognizes `Aspect Ratio:` and `Negative:` when preparing the ComfyUI payload. The title and keyword fields are preserved in history and PNG metadata workflows for downstream tools.
 
-1. **Use markers** - Wrap prompts with `[PROMPT START]` and `[PROMPT END]`
-2. **Include metadata** - Add `Title:` and `Keywords:` lines at the top
-3. **Use separator** - Place `===` between metadata and the actual prompt
-4. **Be descriptive** - Include style, quality, and technical details in the prompt
+### ComfyUI Generation
 
----
+- Configure the ComfyUI server address, API path, seed, steps, CFG scale, negative prompt, aspect ratio, and megapixel target.
+- Submit base generation jobs through the Manifest V3 background service worker.
+- Poll ComfyUI with Chrome alarms so work can continue even when the popup closes.
+- Show generation state, elapsed time, thumbnails, and completed image previews.
+- Cancel individual jobs or cancel all active generation/upscale work.
 
-## Features
+### Built-In Workflows
 
-- Context menu "Save as Prompt" for selected text
-- Keyboard shortcut (Ctrl+Shift+P) to save selected text
-- Auto-send option to immediately generate images
-- Prompt history with image thumbnails
-- Manual prompt input and generation
-- Configurable ComfyUI settings
+The project includes built-in workflow templates for:
+
+- `Qwen T2I` - base Qwen text-to-image generation with a separate standard KSampler upscale workflow.
+- `Qwen T2I + SeedVR` - base Qwen text-to-image generation with a separate SeedVR upscale workflow.
+
+The background orchestrator keeps SeedVR work serialized to reduce GPU memory pressure. Upscales are queued separately and are submitted only after base generation work is idle.
+
+### Custom Workflow Import
+
+You can import ComfyUI API-format workflow JSON from the Settings tab. The extension attempts to detect mappings for common parameters such as prompt text, negative prompt, seed, steps, CFG, aspect ratio, megapixels, and output image node.
+
+Imported workflows can be selected from the popup and edited through the parameter mapping panel.
+
+### History and Recovery
+
+- Stores up to 50 prompt entries in `chrome.storage.local`.
+- Exports and imports prompt history as JSON.
+- Imports prompts from ComfyUI PNG metadata.
+- Keeps base and upscaled image URLs when available.
+- Shows timing summaries for recent generation and upscale runs.
 
 ## Installation
 
-1. Clone this repository
-2. Run `npm install` to install dependencies
-3. Run `npm run build` to build the extension
-4. Open Chrome and go to `chrome://extensions/`
-5. Enable "Developer mode"
-6. Click "Load unpacked" and select the `dist` folder
+### Prerequisites
+
+- Google Chrome or another Chromium-based browser
+- Node.js and npm
+- A running ComfyUI server reachable from Chrome
+
+### Build and Load
+
+```bash
+npm install
+npm run build
+```
+
+Then load the extension in Chrome:
+
+1. Open `chrome://extensions/`.
+2. Enable "Developer mode".
+3. Click "Load unpacked".
+4. Select the project root folder, the folder that contains `manifest.json`.
+
+Do not select `dist/` directly. The manifest, popup HTML, icons, and generated scripts are loaded together from the project root.
 
 ## Configuration
 
-1. Click the extension icon and select "Options"
-2. Set your ComfyUI server address (default: http://127.0.0.1:8188)
-3. Configure the API path and workflow ID
-4. Set default negative prompt and seed
-5. Enable auto-send if desired
+Open the extension popup and use the Settings tab to configure:
 
-## Usage
+- ComfyUI server URL, for example `http://127.0.0.1:8188`.
+- Default negative prompt.
+- Seed, steps, CFG scale, aspect ratio, and megapixel target.
+- Built-in workflow type.
+- Optional auto-send for captured selections.
+- Optional auto-upscale when the generation queue is idle.
+- Prompt start/end markers for automatic detection.
+- Custom workflow imports and parameter mappings.
 
-### Saving Prompts
-- Select text on any webpage
-- Right-click and choose "Save as Prompt"
-- Or use keyboard shortcut Ctrl+Shift+P (Cmd+Shift+P on Mac)
+Most users should set this to their own ComfyUI address before generating, such as `http://127.0.0.1:8188` for a local server.
 
-### Generating Images
-- Click the extension icon to open the popup
-- Use the textarea to edit or paste a prompt
-- Click "Generate" to send to ComfyUI
-- Or click "Send to ComfyUI" on any history entry
+## Typical Workflow
 
-## ComfyUI Integration
+1. Create or find prompts in a browser page, AI chat, notes app, or research page.
+2. Wrap reusable prompts with `[PROMPT START]` and `[PROMPT END]`.
+3. Capture them with selection save, page scan, paste scan, or automatic detection.
+4. Review the prompt history in the popup.
+5. Send selected prompts to ComfyUI or enable auto-send.
+6. Watch status, thumbnails, timing, and upscale progress from the popup or injected page UI.
+7. Export history or recover prompt text from generated PNGs when needed.
 
-This extension sends JSON payloads to your ComfyUI endpoint. You need to adapt the `buildComfyUIWorkflow` function in `src/utils.ts` to match your specific ComfyUI workflow structure.
+## Project Structure
 
-The current placeholder structure is:
-```json
-{
-  "workflow_id": "your_workflow_id",
-  "prompt": "user_prompt",
-  "negative_prompt": "negative_prompt",
-  "seed": 12345
-}
+```text
+browser-to-comfyui-extension/
+  manifest.json              Chrome extension manifest
+  popup.html                 Popup shell
+  popup.css                  Popup styling
+  options.html               Options page shell
+  src/
+    background.ts            Service worker and generation orchestration
+    popup.ts                 Popup UI, settings, history, scans
+    content.ts               Injected page UI and automatic detection
+    types.ts                 Shared settings, history, and workflow types
+    utils.ts                 Storage helpers, ComfyUI client, workflow builders
+    workflow-utils.ts        Imported workflow mapping support
+    png-metadata.ts          PNG tEXt metadata parser
+    workflows/               Built-in ComfyUI workflow templates
+  docs/                      Detailed workflow and prompt-format notes
+  dist/                      Generated build output
 ```
-
-Update this to match your ComfyUI workflow JSON.
-
-## Icons
-
-You need to add icon files to the `icons/` directory:
-- icon16.png (16x16)
-- icon48.png (48x48)
-- icon128.png (128x128)
 
 ## Development
 
-- `npm run dev` - Build in watch mode
-- `npm run build` - Production build
-- `npm run clean` - Clean dist folder
+```bash
+npm run dev      # Vite watch build
+npm run build    # Production build into dist/
+npm run clean    # Remove dist/
+```
 
-## Testing
+The codebase uses TypeScript with `strict` enabled. There is no configured test runner yet, so `npm run build` is the primary verification command.
 
-Add tests using Jest or Vitest. Focus on storage helpers, ComfyUI API client, and popup logic.
+Generated files in `dist/` are ignored and should not be edited manually.
 
-## License
+## Documentation
 
-MIT
+More detailed notes live in:
+
+- [DOCS.md](DOCS.md) - broader user and developer documentation
+- [docs/PROMPT_FORMAT.md](docs/PROMPT_FORMAT.md) - prompt format convention
+- [docs/WORKFLOW.md](docs/WORKFLOW.md) - end-to-end stock image workflow context
+- [docs/workflow-update-guide.md](docs/workflow-update-guide.md) - workflow template maintenance
+- [docs/prompt-detection.md](docs/prompt-detection.md) - automatic detection details

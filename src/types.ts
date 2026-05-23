@@ -132,7 +132,7 @@ const BUILT_IN_WORKFLOWS: { id: BuiltInWorkflowType; name: string; description: 
 ];
 
 const DEFAULT_SETTINGS: ComfyUISettings = {
-  serverAddress: 'http://192.168.50.143:8188',
+  serverAddress: 'http://127.0.0.1:8188',
   apiPath: '/prompt',
   workflowId: 'default_workflow',
   builtInWorkflow: 'qwen-t2i',

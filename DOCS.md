@@ -66,7 +66,7 @@
 5. **Configure ComfyUI server**
    - Click extension icon
    - Go to Settings tab
-   - Set your ComfyUI server address (default: `http://192.168.50.143:8188`)
+   - Set your ComfyUI server address (default: `http://127.0.0.1:8188`)
 
 ---
 
@@ -262,7 +262,7 @@ browser-to-comfyui-extension/
 
 | Setting | Description | Default |
 |---------|-------------|---------|
-| `serverAddress` | ComfyUI server URL | `http://192.168.50.143:8188` |
+| `serverAddress` | ComfyUI server URL | `http://127.0.0.1:8188` |
 | `apiPath` | API endpoint path | `/prompt` |
 | `autoSend` | Generate on capture | `false` |
 | `negativePrompt` | Default negative prompt | `"dust, dots, stain"` |
@@ -668,12 +668,6 @@ Enable verbose logging:
 2. Remove extension
 3. Clear storage: `chrome.storage.local.clear()`
 4. Reload unpacked extension
-
----
-
-## License
-
-MIT License
 
 ---
 

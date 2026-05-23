@@ -8,7 +8,7 @@
 
 **Tech Stack**: TypeScript, Vite, Chrome Extension Manifest V3
 
-**Default ComfyUI Server**: `http://192.168.50.143:8188`
+**Default ComfyUI Server**: `http://127.0.0.1:8188`
 
 ## Architecture Overview
 
@@ -102,7 +102,7 @@ src/
 
 ```typescript
 interface ComfyUISettings {
-  serverAddress: string;      // Default: http://192.168.50.143:8188
+  serverAddress: string;      // Default: http://127.0.0.1:8188
   apiPath: string;            // Default: /prompt
   workflowId: string;
   builtInWorkflow: BuiltInWorkflowType; // 'qwen-t2i' | 'qwen-t2i-seedvr'
