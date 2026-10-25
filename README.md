@@ -205,4 +205,4 @@ More detailed notes live in:
 
 ## License
 
-[BSD 3-Clause](LICENSE)
+[MIT](LICENSE)
