@@ -4,6 +4,13 @@ A Chrome Manifest V3 extension for collecting image prompts from the web, managi
 
 The extension is built for people who ideate in a browser, collect prompts from pages or AI chats, and want a small control center for sending those prompts into ComfyUI without copy/pasting workflow JSON by hand.
 
+<p>
+  <img src="docs/images/popup-history.png" width="380" alt="Popup: prompt history with thumbnails, generation status and timing">
+  <img src="docs/images/popup-settings.png" width="380" alt="Popup: ComfyUI server and workflow settings">
+</p>
+
+The screenshots use made-up prompts and placeholder images.
+
 ## What It Does
 
 ComfyUI Prompt Manager turns Chrome into a prompt capture and generation companion:
@@ -108,6 +115,26 @@ Then load the extension in Chrome:
 
 Do not select `dist/` directly. The manifest, popup HTML, icons, and generated scripts are loaded together from the project root.
 
+## Permissions
+
+Chrome warns that the extension can "read and change all your data on all websites".
+Here is what each permission is used for:
+
+| Permission | Why |
+|---|---|
+| `contextMenus` | The "Save as Prompt" item in the right-click menu |
+| `storage` | Settings (`chrome.storage.sync`) and the prompt history (`chrome.storage.local`) |
+| `activeTab`, `scripting` | Injects the prompt detector into the open tab when you turn on auto-detection or press Scan Page |
+| `tabs` | Finds the active tab and talks to the detector running in it |
+| `alarms` | Polls ComfyUI for finished generations while the popup is closed |
+| `host_permissions: http://*/*, https://*/*` | Prompt detection works on any site you choose, and the ComfyUI server can be at any address on your network |
+
+The extension sends data only to the ComfyUI server set in Settings (default
+`http://127.0.0.1:8188`): prompts, workflow JSON and, for upscales, the generated image.
+It makes no other network requests. The prompt detector is injected only into the tab
+you have open, when you press Scan Page or open the popup on a site where you turned
+auto-detection on.
+
 ## Configuration
 
 Open the extension popup and use the Settings tab to configure:
@@ -175,3 +202,7 @@ More detailed notes live in:
 - [docs/WORKFLOW.md](docs/WORKFLOW.md) - end-to-end stock image workflow context
 - [docs/workflow-update-guide.md](docs/workflow-update-guide.md) - workflow template maintenance
 - [docs/prompt-detection.md](docs/prompt-detection.md) - automatic detection details
+
+## License
+
+[BSD 3-Clause](LICENSE)
